@@ -1,0 +1,23 @@
+# Reciprocal rank fusion in practice
+
+Reciprocal rank fusion combines several ranked lists without needing comparable scores.
+Each list contributes one over the sum of a constant and the rank of the item in that list.
+
+## Why the constant matters
+
+A small constant makes the top of each list dominate, which is exactly what fusion is supposed to
+avoid. A large constant flattens the curve until rank differences stop mattering. Sixty is the value
+that has held up across retrieval benchmarks, and it is small enough to still reward being top ranked
+in one channel while large enough to reward agreement between channels.
+
+## Granularity
+
+Fusion runs at document level in this project because the full text channel only produces document
+level hits. The chunk level is reconstructed afterwards for display, which keeps the two channels
+comparable instead of structurally unbalanced.
+
+## What fusion does not fix
+
+Fusion cannot recover an item that no channel retrieved. If the candidate window is exhausted the
+result set is incomplete and the caller must be told, ideally with a reason code that distinguishes
+"we returned the limit" from "there may be more we never looked at".

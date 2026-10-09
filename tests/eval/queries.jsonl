@@ -1,0 +1,40 @@
+{"id":"q001","query":"RRF k=60","mode":"fulltext","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"expect_chunks":[{"file":"混合检索设计.md","contains":"k=60"}],"tags":["字面命中","公式"]}
+{"id":"q002","query":"scope_filter 截断","mode":"fulltext","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"expect_chunks":[{"file":"混合检索设计.md","contains":"scope_filter"}],"tags":["字面命中","截断语义"]}
+{"id":"q003","query":"candidate_window 候选窗口","mode":"fulltext","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"expect_chunks":[{"file":"混合检索设计.md","contains":"candidate_window"}],"tags":["字面命中","截断语义"]}
+{"id":"q004","query":"规则重排 系数 上限","mode":"fulltext","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"expect_chunks":[{"file":"混合检索设计.md","contains":"0.2"}],"tags":["字面命中","规则重排"]}
+{"id":"q005","query":"标题命中 系数","mode":"fulltext","split":"holdout","expect_documents":[{"file":"混合检索设计.md","grade":3}],"expect_chunks":[{"file":"混合检索设计.md","contains":"标题命中"}],"tags":["字面命中","规则重排"]}
+{"id":"q006","query":"chunk_size chunk_overlap 参数快照","mode":"fulltext","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":3}],"expect_chunks":[{"file":"块级溯源设计.md","contains":"chunk_overlap"}],"tags":["字面命中","块表口径"]}
+{"id":"q007","query":"工作表 锚点","mode":"fulltext","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":3},{"file":"来源统计.xlsx","grade":1}],"expect_chunks":[{"file":"块级溯源设计.md","contains":"工作表"}],"tags":["字面命中","锚点"]}
+{"id":"q008","query":"k-means 种子 随机","mode":"fulltext","split":"dev","expect_documents":[{"file":"检索评测方法.md","grade":3}],"expect_chunks":[{"file":"检索评测方法.md","contains":"固定种子"}],"tags":["字面命中","防过拟合"]}
+{"id":"q009","query":"recall@k MRR 指标","mode":"fulltext","split":"holdout","expect_documents":[{"file":"检索评测方法.md","grade":3}],"expect_chunks":[{"file":"检索评测方法.md","contains":"recall@k"}],"tags":["字面命中","指标"]}
+{"id":"q010","query":"nprobe snapshot","mode":"fulltext","split":"dev","expect_documents":[{"file":"vector-index-notes.txt","grade":3}],"expect_chunks":[{"file":"vector-index-notes.txt","contains":"nprobe"}],"tags":["英文","字面命中"]}
+{"id":"q011","query":"reciprocal rank fusion constant","mode":"fulltext","split":"dev","expect_documents":[{"file":"reciprocal-rank-fusion.txt","grade":3}],"expect_chunks":[{"file":"reciprocal-rank-fusion.txt","contains":"Sixty"}],"tags":["英文","字面命中"]}
+{"id":"q012","query":"graded relevance discounted cumulative gain","mode":"fulltext","split":"dev","expect_documents":[{"file":"evaluation-metrics.txt","grade":3}],"expect_chunks":[{"file":"evaluation-metrics.txt","contains":"discounted cumulative gain"}],"tags":["英文","字面命中"]}
+{"id":"q013","query":"软删除 映射源","mode":"fulltext","split":"holdout","expect_documents":[{"file":"导入与目录映射流程.md","grade":3}],"expect_chunks":[{"file":"导入与目录映射流程.md","contains":"软删除"}],"tags":["字面命中","目录映射"]}
+{"id":"q014","query":"INSERT SELECT 复用","mode":"fulltext","split":"dev","expect_documents":[{"file":"导入与目录映射流程.md","grade":3}],"expect_chunks":[{"file":"导入与目录映射流程.md","contains":"复用"}],"tags":["字面命中","同内容复用"]}
+{"id":"q015","query":"唯一键 逾期 去重","mode":"fulltext","split":"dev","expect_documents":[{"file":"工作台任务说明.docx","grade":3}],"expect_chunks":[{"file":"工作台任务说明.docx","contains":"唯一键"}],"tags":["字面命中","工作台"]}
+{"id":"q016","query":"拖拽 换组","mode":"fulltext","split":"dev","expect_documents":[{"file":"工作台任务说明.docx","grade":3}],"expect_chunks":[{"file":"工作台任务说明.docx","contains":"拖拽"}],"tags":["字面命中","看板"]}
+{"id":"q017","query":"技术规范 映射源","mode":"fulltext","split":"dev","expect_documents":[{"file":"来源统计.xlsx","grade":3},{"file":"导入与目录映射流程.md","grade":1}],"expect_chunks":[{"file":"来源统计.xlsx","contains":"技术规范"}],"tags":["字面命中","表格"]}
+{"id":"q018","query":"403 读者 权限","mode":"fulltext","split":"holdout","expect_documents":[{"file":"权限与审计.md","grade":3}],"expect_chunks":[{"file":"权限与审计.md","contains":"403"}],"tags":["字面命中","权限"]}
+{"id":"q019","query":"扫描件 bbox 坐标","mode":"fulltext","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":3}],"expect_chunks":[{"file":"块级溯源设计.md","contains":"bbox"}],"tags":["字面命中","锚点"]}
+{"id":"q020","query":"recall@5 当前值 口径","mode":"fulltext","split":"dev","expect_documents":[{"file":"指标基线表.csv","grade":3},{"file":"检索评测方法.md","grade":1}],"expect_chunks":[{"file":"指标基线表.csv","contains":"0.72"}],"tags":["字面命中","表格"]}
+{"id":"q021","query":"谁负责混合检索融合这个任务","mode":"semantic","split":"dev","expect_documents":[{"file":"项目排期表.csv","grade":3}],"tags":["表格","排期"]}
+{"id":"q022","query":"两路检索结果怎么合成一个排名","mode":"semantic","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"tags":["改写问法"]}
+{"id":"q023","query":"为什么搜索结果不能只按导入时间排序","mode":"semantic","split":"holdout","expect_documents":[{"file":"混合检索设计.md","grade":3}],"tags":["改写问法"]}
+{"id":"q024","query":"答案能不能跳回原文的第几页","mode":"semantic","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":3}],"tags":["改写问法","锚点"]}
+{"id":"q025","query":"怎么知道这次检索的结果可能不完整","mode":"semantic","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3},{"file":"vector-index-notes.txt","grade":2}],"tags":["改写问法","截断语义"]}
+{"id":"q026","query":"给老数据补块要付什么代价","mode":"semantic","split":"holdout","expect_documents":[{"file":"块级溯源设计.md","grade":3}],"tags":["改写问法","回填"]}
+{"id":"q027","query":"怎么防止调参时把评测集背下来","mode":"semantic","split":"dev","expect_documents":[{"file":"检索评测方法.md","grade":3}],"tags":["改写问法","防过拟合"]}
+{"id":"q028","query":"评测语料为什么不能太少也不能太多","mode":"semantic","split":"dev","expect_documents":[{"file":"检索评测方法.md","grade":3}],"tags":["改写问法","语料"]}
+{"id":"q029","query":"只看召回率会漏掉什么问题","mode":"semantic","split":"holdout","expect_documents":[{"file":"evaluation-metrics.txt","grade":3}],"tags":["改写问法","指标"]}
+{"id":"q030","query":"一个文档里命中了好几块，结果里只显示一条是怎么定的","mode":"semantic","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3}],"tags":["改写问法","融合粒度"]}
+{"id":"q031","query":"任务完成和归档有什么区别","mode":"semantic","split":"dev","expect_documents":[{"file":"工作台任务说明.docx","grade":3}],"tags":["改写问法","工作台"]}
+{"id":"q032","query":"整库加密为什么默认不开","mode":"semantic","split":"holdout","expect_documents":[{"file":"权限与审计.md","grade":3}],"tags":["改写问法","隐私"]}
+{"id":"q033","query":"提醒到点以后消息会写到哪里","mode":"semantic","split":"dev","expect_documents":[{"file":"工作台任务说明.docx","grade":2}],"tags":["改写问法","工作台"]}
+{"id":"q034","query":"限定目录检索时可能漏掉一些结果的原因","mode":"semantic","split":"dev","expect_documents":[{"file":"混合检索设计.md","grade":3},{"file":"vector-index-notes.txt","grade":2}],"tags":["改写问法","作用域"]}
+{"id":"q035","query":"同内容文件被复制一份以后，向量应该指向谁的块","mode":"semantic","split":"holdout","expect_documents":[{"file":"导入与目录映射流程.md","grade":3}],"tags":["改写问法","同内容复用"]}
+{"id":"q036","query":"解析失败会不会影响别的文件","mode":"semantic","split":"dev","expect_documents":[{"file":"导入与目录映射流程.md","grade":3}],"tags":["改写问法","失败隔离"]}
+{"id":"q037","query":"把一份很长的文档切成小段时，相邻两段为什么会重复一部分内容","mode":"semantic","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":2}],"tags":["改写问法","分块"]}
+{"id":"q038","query":"出域范围默认允许送到远端多少内容","mode":"semantic","split":"dev","expect_documents":[{"file":"权限与审计.md","grade":3}],"tags":["改写问法","隐私"]}
+{"id":"q039","query":"没有文字层的图片资料能不能给出坐标级的出处","mode":"semantic","split":"holdout","expect_documents":[{"file":"块级溯源设计.md","grade":2}],"tags":["改写问法","多模态"]}
+{"id":"q040","query":"表格类文件会给出什么级别的出处","mode":"semantic","split":"dev","expect_documents":[{"file":"块级溯源设计.md","grade":3},{"file":"来源统计.xlsx","grade":1}],"tags":["改写问法","锚点"]}

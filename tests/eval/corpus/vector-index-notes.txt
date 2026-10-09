@@ -1,0 +1,24 @@
+# Vector index notes
+
+The in-memory vector index exists to avoid reading every embedding blob and computing cosine
+similarity by brute force on each query.
+
+## Two modes
+
+Below 512 live vectors the index does a flat scan over a contiguous Float32 matrix.
+Above that threshold it trains a spherical k-means with k around the square root of the row count
+and probes only the closest clusters, with nprobe set to roughly one tenth of k.
+
+## Snapshot versioning
+
+The index persists a binary snapshot under the data directory. The snapshot carries a version number
+and a magic header; any change to the binary layout bumps the version and older files are silently
+discarded and rebuilt from the database. Validity is checked against the database row count, so a stale
+snapshot can never pollute search results.
+
+## Known limits
+
+The index stores only the document id and the chunk id per row, so scoped filtering cannot be pushed
+down into the index. Scoped semantic search therefore over-fetches candidates and filters afterwards,
+which can miss results - the UI must say so instead of pretending the result set is complete.
+Incremental snapshots are future work; today every flush rewrites the whole file.

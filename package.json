@@ -1,0 +1,112 @@
+{
+  "name": "sd-knowledge",
+  "version": "1.0.0",
+  "description": "SD 知识图谱数据管理软件 - 面向 AI Agent 的本地知识中枢",
+  "main": "dist-electron/main.js",
+  "author": "SD",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:5173 && tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
+    "build": "npm run typecheck && vite build",
+    "package": "npm run build && electron-builder",
+    "package:win": "npm run build && electron-builder --win",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "mcp": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=production electron --mcp dist-electron/mcpEntry.js",
+    "mcp:dev": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron --mcp dist-electron/mcpEntry.js",
+    "start:web": "node dist-electron/webEntry.js",
+    "dev:web": "concurrently \"npm run dev:renderer\" \"npm run dev:web:api\"",
+    "dev:web:api": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development SD_WEB_PORT=5174 node dist-electron/webEntry.js",
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json",
+    "test": "npm run typecheck && node tests/integration.cjs",
+    "eval": "tsc -p electron/tsconfig.json && node tests/eval/run.cjs",
+    "eval:baseline": "tsc -p electron/tsconfig.json && node tests/eval/run.cjs --update-baseline",
+    "perf:report": "node tests/perf-report.cjs",
+    "perf:threads": "node tests/perf-thread-bench.cjs",
+    "start:desktop": "electron ."
+  },
+  "build": {
+    "appId": "com.sd.knowledge",
+    "productName": "SD",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SD Knowledge"
+    },
+    "extraResources": [
+      {
+        "from": "resources/",
+        "to": "resources/"
+      }
+    ],
+    "npmRebuild": false
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@xenova/transformers": "^2.17.0",
+    "better-sqlite3": "^11.0.0",
+    "compromise": "^14.0.0",
+    "cors": "^2.8.5",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.6",
+    "exceljs": "^4.4.0",
+    "exifr": "^7.1.0",
+    "express": "^4.19.0",
+    "express-rate-limit": "^7.2.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "jszip": "^3.10.0",
+    "mammoth": "^1.6.0",
+    "multer": "^1.4.5-lts.1",
+    "nodejieba": "^3.4.0",
+    "pdfjs-dist": "^4.0.0",
+    "tesseract.js": "^5.1.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.17.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/express": "^4.17.0",
+    "@types/multer": "^1.4.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^9.0.0",
+    "@types/ws": "^8.5.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.0",
+    "electron-rebuild": "^3.2.0",
+    "postcss": "^8.4.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.23.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.0",
+    "wait-on": "^7.2.0"
+  },
+  "optionalDependencies": {
+    "@esbuild/win32-x64": "^0.28.2"
+  }
+}

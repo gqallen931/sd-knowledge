@@ -1,0 +1,29 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-electron/
+release/
+
+# 本地运行数据（数据库、向量索引、密钥、用户文件、备份）——绝不入库
+Data/
+
+# 验证/测试运行产物（含测试数据库与密钥）
+.verification/
+
+# 日志与临时文件
+*.log
+dev-web.log
+tmp-*
+*.out
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 环境变量与密钥
+.env
+.env.*
+*.key
+!.gitkeep

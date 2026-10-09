@@ -1,0 +1,23 @@
+# Ranking metrics beyond recall
+
+Recall alone rewards a retriever that returns everything. Mean reciprocal rank punishes a system that
+finds the right answer at position nine as much as one that never finds it, because the contribution
+is one over the rank.
+
+## Graded relevance
+
+Useful answers are not binary. A three level scale - must hit, should hit, related - lets the report
+distinguish a missing core answer from a missing side note. Normalised discounted cumulative gain is
+the metric that actually consumes those grades; recall@k only looks at the binary cut at grade two.
+
+## Precision and negative samples
+
+When a dataset lists explicitly irrelevant documents, precision@k becomes meaningful again and guards
+against a retriever that pads results with noise. Without negative samples precision@k is close to
+meaningless on a small corpus, so this project reports it only when negatives exist.
+
+## Reporting discipline
+
+Broken down by query type, a metric tells you where the retriever fails: purely lexical questions,
+paraphrases without shared vocabulary, type filtered questions, and scoped questions each fail for
+different reasons. An average over all of them hides all of it.
