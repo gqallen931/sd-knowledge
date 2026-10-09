@@ -123,10 +123,12 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
     'data.settings.get': () => guard(() => dataManager.readSettings()),
     'data.settings.save': (p: any) => guard(() => dataManager.saveSettings(p || {})),
 
-    // 接缝探针：只汇报「接没接上」，不做任何模型/设备调用，因此读接口放开给 REST 只读白名单
-    'gateway.status': () => guard(() => deps.llm?.status() ?? {
+    // 接缝探针：只汇报「接没接上」，不做任何模型/设备调用，因此读接口放开给 REST 只读白名单。
+    // 不加会话 guard（与下方 llm.* 一致，见 S1-02 A4 的核对结论）：问答页在未登录时也要据此
+    // 判断「已配置 / 未配置」，加 guard 会让未登录用户永远看到「未配置」，与事实不符。
+    'gateway.status': () => deps.llm?.status() ?? {
       configured: false, providerId: null, label: '', model: '', reason: '未装配 LLM 网关',
-    }),
+    },
     'perception.status': () => guard(() => ({
       ...(deps.camera?.status() ?? {
         available: false, providerId: null, label: '', reason: '未装配摄像头感知层',
