@@ -18,6 +18,8 @@ import { DataManager } from './workbench/dataManager'
 import { LlmGateway } from './gateway/llmGateway'
 import { LlmService } from './gateway/llmService'
 import { AnswerService } from './answerService'
+import { ResourceService } from './resourceService'
+import { GithubRankService } from './githubRankService'
 import { CameraService } from './perception/cameraService'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -68,6 +70,10 @@ export async function createRuntime(dataDir: string) {
   const llmService = new LlmService(db, dataDir, llm)
   // S1-03：RAG 问答链路（混合检索 → 上下文组装 → LLM → 答案 + 引用）
   const answer = new AnswerService(search, llmService)
+  // 开源资源汇：卡片式展示收集的开源模型/技能/工具（表空时自动灌入种子数据）
+  const resources = new ResourceService(db)
+  // GitHub 每日榜单：缓存每日各领域 star 前 15 项目
+  const githubRank = new GithubRankService(db)
   const camera = new CameraService()
 
   // 断点续传：恢复上次异常退出时中断或仍在排队的解析任务（按持久化的优先级还原出队顺序）
@@ -122,7 +128,7 @@ export async function createRuntime(dataDir: string) {
     isQueued: (id: number) => queue.isQueued(id),
     db, files, processing, search, graph, security, backup,
     workbench, tasks, auth, reminders, dataManager,
-    llm, llmService, answer, camera,
+    llm, llmService, answer, camera, resources, githubRank,
     chunkBackfill,
     runChunkBackfill,
     stopReminders: () => clearInterval(reminderTimer),

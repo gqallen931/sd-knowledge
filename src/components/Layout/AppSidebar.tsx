@@ -52,6 +52,7 @@ const NAV: NavItem[] = [
   { label: '团队协作', icon: <IconUsers />, pending: true },
   { label: '智能分析', icon: <IconChart />, pending: true },
   { label: '知识库', path: '/', icon: <IconBook /> },
+  { label: '资源汇', path: '/resources', icon: <IconLayers /> },
   { label: '设置中心', path: '/settings', icon: <IconGear /> },
   { label: '知识图谱', path: '/graph', icon: <IconChart /> },
   { label: '搜索中心', path: '/search', icon: <IconSearch /> },

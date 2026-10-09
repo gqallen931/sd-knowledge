@@ -9,6 +9,7 @@ import SearchCenter from './pages/SearchCenter'
 import Projects from './pages/Projects'
 import Settings from './pages/Settings'
 import Ask from './pages/Ask'
+import Resources from './pages/Resources'
 import WorkbenchPage from './workbench/WorkbenchPage'
 import { WorkbenchProvider } from './workbench/WorkbenchContext'
 import './workbench/dashboard.css'
@@ -93,6 +94,7 @@ export default function App() {
               <Route path="/search" element={<SearchCenter />} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/resources" element={<Resources />} />
             </Routes>
           </div>
         )}

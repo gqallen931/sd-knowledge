@@ -2,6 +2,8 @@ import { CameraService } from '../perception/cameraService'
 import { LlmGateway } from '../gateway/llmGateway'
 import { LlmService } from '../gateway/llmService'
 import { AnswerService } from '../answerService'
+import { ResourceService } from '../resourceService'
+import { GithubRankService } from '../githubRankService'
 import { SearchOptions, SearchService } from '../searchService'
 import { pluginRegistry, reloadPluginSystem } from '../plugins'
 import { AuthService } from './authService'
@@ -26,6 +28,10 @@ export interface WorkbenchRpcDeps {
   answer?: AnswerService
   /** 摄像头接缝（ADR-003 决策 5）：仅用于上报可用性 */
   camera?: CameraService
+  /** 开源资源汇：卡片式展示收集的开源模型/技能/工具 */
+  resources?: ResourceService
+  /** GitHub 每日榜单：缓存每日各领域 star 前 15 项目 */
+  githubRank?: GithubRankService
   /** 会话标识：Web 端用本地会话 token，桌面端固定为 desktop */
   clientId: string
   /**
@@ -136,6 +142,16 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
       running: deps.camera?.isRunning() ?? false,
     })),
 
+    // 开源资源汇（S2 扩展）：只读，不加会话 guard（与 llm.* 一致，属内核域）
+    'resource.categories': () => deps.resources?.categories() ?? [],
+    'resource.list': (p: any) => deps.resources?.list(p || {}) ?? [],
+    'resource.get': (id: any) => deps.resources?.get(Number(id)) ?? null,
+
+    // GitHub 每日榜单（S2 扩展）：只读缓存 + 手动刷新
+    'githubRank.categories': () => deps.githubRank?.listCategories() ?? [],
+    'githubRank.daily': (p: any) => deps.githubRank?.getDailyRank(p?.category) ?? { date: '', categories: [] },
+    'githubRank.refresh': (p: any) => deps.githubRank?.refreshNow(p?.category) ?? { date: '', categories: [] },
+
     // 插件（ADR-005 D26 的预埋：插件方法统一进方法表，RPC/REST/MCP/桌面 IPC 自动获得，
     // 插件作者不手写协议层）。list/status 以只读后缀命名，因此被 REST 只读白名单覆盖；
     // enable/disable/reload 是写操作，reader 凭证会被拒。
@@ -212,4 +228,8 @@ export const WORKBENCH_RPC_METHODS: string[] = [
   'llm.setEgress', 'llm.logs',
   // RAG 问答（S1-03）
   'chat.ask',
+  // 开源资源汇（S2 扩展）
+  'resource.categories', 'resource.list', 'resource.get',
+  // GitHub 每日榜单（S2 扩展）
+  'githubRank.categories', 'githubRank.daily', 'githubRank.refresh',
 ]

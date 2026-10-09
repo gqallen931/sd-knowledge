@@ -174,4 +174,57 @@ export const coreMigrations: Migration[] = [
       if (!has('document_count')) db.exec('ALTER TABLE llm_egress_logs ADD COLUMN document_count INTEGER')
     },
   },
+  {
+    version: 5,
+    name: 'resources-open-source-hub',
+    /**
+     * 开源资源汇表（S2-扩展）：存放从外部平台（抖音/微信/GitHub）收集整理的
+     * 开源模型、技能、工具、项目等汇总信息，供工作台卡片式浏览与分类筛选。
+     *
+     * 幂等：DDL 全部 IF NOT EXISTS；加列前 PRAGMA 判断。
+     */
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS resources (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          name          TEXT NOT NULL,
+          category      TEXT NOT NULL,
+          description   TEXT NOT NULL,
+          link          TEXT,
+          tags          TEXT,
+          created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_resources_category ON resources(category);`)
+    },
+  },
+  {
+    version: 6,
+    name: 'github-daily-rank',
+    /**
+     * GitHub 每日榜单（S2-扩展）：缓存每日从 GitHub API 拉取的各领域 star 前 15 项目。
+     *
+     * 幂等：DDL 全部 IF NOT EXISTS。
+     */
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS github_rank_snapshots (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          snapshot_date TEXT NOT NULL,
+          category      TEXT NOT NULL,
+          rank          INTEGER NOT NULL,
+          repo_name     TEXT NOT NULL,
+          full_name     TEXT NOT NULL,
+          description   TEXT,
+          stars         INTEGER NOT NULL,
+          language      TEXT,
+          url           TEXT NOT NULL,
+          created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (snapshot_date, category, rank)
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_github_rank_date ON github_rank_snapshots(snapshot_date, category);`)
+    },
+  },
 ]

@@ -90,7 +90,7 @@ if (!window.sd) {
  *
  * `plugin` 组由 ADR-005 的插件方法表提供（plugin.list / status / enable / disable / reload）。
  */
-const WORKBENCH_GROUPS = ['auth', 'workbench', 'task', 'tag', 'notification', 'reminder', 'data', 'gateway', 'perception', 'plugin', 'llm', 'chat'] as const
+const WORKBENCH_GROUPS = ['auth', 'workbench', 'task', 'tag', 'notification', 'reminder', 'data', 'gateway', 'perception', 'plugin', 'llm', 'chat', 'resource', 'githubRank'] as const
 
 function bindWorkbench(call: (method: string, ...args: any[]) => Promise<any>) {
   WORKBENCH_GROUPS.forEach(prefix => {
@@ -180,12 +180,17 @@ export async function askStream(payload: AskStreamPayload, handlers: AskStreamHa
           else if (event.type === 'error') throw rpcError(event.message || '问答失败', event.code === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' : 'RPC_FAILED')
         }
       }
+      // 完整结果已到手：直接 break，等服务端 FIN 自然结束，不再主动 cancel。
+      // 主动 cancel 会触发 Chromium 的 net::ERR_ABORTED 控制台噪音。
+      if (result) break
     }
     if (!result) throw new Error('问答未返回结果，请重试')
     return result
   } catch (error) {
     // 卸载期间的失败（请求被中断）静默返回，与 rpc 一致
     if (unloading) return null
+    // 结果已完整收到后，收尾阶段的 AbortError/连接中断不再视为错误
+    if ((error as any)?.name === 'AbortError') return null
     throw error
   }
 }

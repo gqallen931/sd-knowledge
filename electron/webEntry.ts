@@ -134,7 +134,10 @@ async function main() {
     const send = (payload: Record<string, unknown>) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`) }
     const controller = new AbortController()
     // 必须在 **response** 的 close 上取消：req 的 close 在请求体读完时就会触发（会误杀还没开始的生成）
-    res.on('close', () => controller.abort())
+    // 但 res.end() 正常结束时 close 也会触发，需排除——否则 AbortController 会让浏览器报 net::ERR_ABORTED
+    let clientGone = false
+    req.on('close', () => { clientGone = true; controller.abort() })
+    res.on('close', () => { if (clientGone) controller.abort() })
     try {
       const result = await r.answer.ask({
         ...(req.body || {}),

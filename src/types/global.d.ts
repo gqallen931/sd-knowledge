@@ -535,6 +535,38 @@ export interface SDWorkbenchApi {
     disable: (id: string) => Promise<SDPluginStatus>
     reload: () => Promise<{ loaded: string[]; rejected: string[] }>
   }
+  /** 开源资源汇：卡片式展示收集的开源模型/技能/工具（只读） */
+  resource: {
+    categories: () => Promise<Array<{ category: string; count: number }>>
+    list: (payload?: { category?: string; search?: string }) => Promise<SDResourceItem[]>
+    get: (id: number) => Promise<SDResourceItem | null>
+  }
+  /** GitHub 每日榜单：缓存每日各领域 star 前 15 项目 */
+  githubRank: {
+    categories: () => Promise<Array<{ category: string; label: string; query: string }>>
+    daily: (payload?: { category?: string }) => Promise<{ date: string; categories: Array<{ category: string; label: string; items: SDGithubRankItem[] }> }>
+    refresh: (payload?: { category?: string }) => Promise<{ date: string; categories: Array<{ category: string; label: string; items: SDGithubRankItem[] }> }>
+  }
+}
+
+export interface SDGithubRankItem {
+  rank: number
+  repo_name: string
+  full_name: string
+  description: string | null
+  stars: number
+  language: string | null
+  url: string
+}
+
+export interface SDResourceItem {
+  id: number
+  name: string
+  category: string
+  description: string
+  link: string | null
+  tags: { subcategory?: string; links?: string[] }
+  created_at?: string
 }
 
 export interface SDAPI extends SDWorkbenchApi {

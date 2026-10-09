@@ -23,6 +23,7 @@ import { createWorkbenchRpc } from './services/workbench/rpcHandlers'
 import { LlmGateway } from './services/gateway/llmGateway'
 import { LlmService } from './services/gateway/llmService'
 import { AnswerService } from './services/answerService'
+import { ResourceService } from './services/resourceService'
 import { CameraService } from './services/perception/cameraService'
 
 let mainWindow: BrowserWindow | null = null
@@ -47,6 +48,7 @@ let dataManager: DataManager
 let llmGateway: LlmGateway
 let llmService: LlmService
 let answerService: AnswerService
+let resourceService: ResourceService
 let cameraService: CameraService
 const DESKTOP_CLIENT_ID = 'desktop'
 let reminderTimer: NodeJS.Timeout | null = null
@@ -461,10 +463,8 @@ function registerIPC() {
     reminders: reminderService,
     dataManager,
     search: searchService,
-    llm: llmGateway,
-    llmService,
-    answer: answerService,
-    camera: cameraService,
+    llm: llmGateway, llmService, answer: answerService, camera: cameraService,
+    resources: resourceService,
     clientId: DESKTOP_CLIENT_ID,
   })
   handle('workbench:rpc', async (_, method: string, args: any[] = []) => {
@@ -545,6 +545,8 @@ if (process.argv.includes('--mcp')) {
   llmService = new LlmService(db, dataDir, llmGateway)
   // S1-03：RAG 问答链路
   answerService = new AnswerService(searchService, llmService)
+  // 开源资源汇：卡片式展示收集的开源模型/技能/工具
+  resourceService = new ResourceService(db)
   cameraService = new CameraService()
 
   searchService.setProcessingEngine(processingEngine)
