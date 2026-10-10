@@ -195,7 +195,7 @@ export default function Settings({ modal = false, onClose }: SettingsProps) {
         />
       )}
       {tab === 'security' && <SecurityTab status={securityStatus} apiKeys={apiKeys} onRefresh={loadAll} />}
-      {tab === 'audit' && <AuditTab logs={auditLogs} />}
+      {tab === 'audit' && <AuditTab logs={auditLogs} onRefresh={loadAll} />}
       </section>
     </div>
   )
@@ -1057,7 +1057,59 @@ function PluginTab({ plugins, error, busy, onToggle, onReload, onRefresh }: {
   )
 }
 
-function AuditTab({ logs }: { logs: any[] }) {
+function AuditTab({ logs, onRefresh }: { logs: any[]; onRefresh: () => void }) {
+  const [retentionDays, setRetentionDays] = useState('')
+  const [retentionError, setRetentionError] = useState('')
+  const [retentionBusy, setRetentionBusy] = useState(false)
+  const [pruneBusy, setPruneBusy] = useState(false)
+  const [pruneResult, setPruneResult] = useState<{ removed: number; remaining: number; snapshot: string | null } | null>(null)
+  const [pruneError, setPruneError] = useState('')
+  const [apiMissing, setApiMissing] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const days = await window.sd.audit.retentionGet()
+        if (!cancelled) setRetentionDays(String(days))
+      } catch (e: any) {
+        // 宿主未暴露审计接口（老版本后端 / 未登录）：给出可读提示而不是崩掉
+        if (!cancelled) setApiMissing(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const saveRetention = async () => {
+    const n = Number(retentionDays)
+    if (!Number.isInteger(n) || n < 7 || n > 365) {
+      setRetentionError('保留天数需为 7–365 之间的整数')
+      return
+    }
+    setRetentionBusy(true)
+    try {
+      const saved = await window.sd.audit.retentionSet(n)
+      setRetentionDays(String(saved))
+      setRetentionError('')
+    } catch (e: any) {
+      setRetentionError('保存失败：' + (e?.message || String(e)))
+    } finally { setRetentionBusy(false) }
+  }
+
+  const prune = async () => {
+    if (!confirm('将清理超过保留天数的审计日志，清理前会自动生成快照备份（失败则中止清理）。确定继续？')) return
+    setPruneBusy(true)
+    setPruneError('')
+    setPruneResult(null)
+    try {
+      const result = await window.sd.audit.prune()
+      setPruneResult(result)
+      onRefresh()
+    } catch (e: any) {
+      setPruneError(e?.message || String(e))
+    } finally { setPruneBusy(false) }
+  }
+
   const fmtTime = (t: string) => {
     if (!t) return '-'
     const d = new Date(t)
@@ -1066,6 +1118,68 @@ function AuditTab({ logs }: { logs: any[] }) {
 
   return (
     <div style={{ maxWidth: '800px' }}>
+      <Card title="日志保留策略">
+        {apiMissing ? (
+          <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.7 }}>
+            当前运行模式未暴露审计接口，保留策略与手动清理暂不可用。
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>审计日志保留</span>
+              <input
+                value={retentionDays}
+                onChange={e => { setRetentionDays(e.target.value); setRetentionError('') }}
+                disabled={retentionBusy}
+                inputMode="numeric"
+                placeholder="90"
+                aria-label="审计日志保留天数"
+                style={{ ...inputStyle, width: '80px', padding: '6px 10px' }}
+              />
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>天（7–365）</span>
+              <button
+                onClick={saveRetention}
+                disabled={retentionBusy || !retentionDays}
+                style={{
+                  ...btnStyle,
+                  fontSize: '12px',
+                  padding: '6px 14px',
+                  cursor: (retentionBusy || !retentionDays) ? 'not-allowed' : 'pointer',
+                  opacity: (retentionBusy || !retentionDays) ? 0.6 : 1,
+                }}>
+                {retentionBusy ? '保存中…' : '保存'}
+              </button>
+            </div>
+            {retentionError && <div style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '8px' }} role="alert">{retentionError}</div>}
+            <div className="flex items-center gap-2" style={{ marginTop: '12px' }}>
+              <button
+                onClick={prune}
+                disabled={pruneBusy || apiMissing}
+                style={{
+                  ...btnStyle,
+                  fontSize: '12px',
+                  padding: '6px 14px',
+                  cursor: pruneBusy ? 'not-allowed' : 'pointer',
+                  opacity: pruneBusy ? 0.6 : 1,
+                }}>
+                {pruneBusy ? '清理中…' : '清理过期日志'}
+              </button>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>清理前自动快照到备份目录，失败则中止</span>
+            </div>
+            {pruneResult && (
+              <div className="notice" role="status" style={{ marginTop: '10px' }}>
+                已清理 {pruneResult.removed} 条，剩余 {pruneResult.remaining} 条
+                {pruneResult.snapshot ? `，快照：${pruneResult.snapshot}` : ''}
+              </div>
+            )}
+            {pruneError && (
+              <div style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '8px' }} role="alert">
+                清理失败：{pruneError}
+              </div>
+            )}
+          </>
+        )}
+      </Card>
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--card-border)' }}>
         <div className="flex items-center px-4" style={{ height: '36px', background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
           <span style={{ flex: 1 }}>操作</span>

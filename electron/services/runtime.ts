@@ -34,7 +34,7 @@ export async function createRuntime(dataDir: string) {
   const search = new SearchService(db)
   search.setProcessingEngine(processing)
   const graph = new GraphBuilder(db)
-  const security = new SecurityService(db)
+  const security = new SecurityService(db, path.join(dataDir, 'backups', 'audit'))
   const backup = new BackupService(db, dataDir)
   backup.start()
   // S2-07：文档状态落定后比对保存的检索；批量导入用 5s 防抖合并成一次，避免混合检索被打满

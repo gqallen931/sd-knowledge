@@ -33,6 +33,12 @@ const api = {
     searchNodes: (query: string, limit?: number) => ipcRenderer.invoke('graph:searchNodes', query, limit),
     searchEntities: (query: string, limit?: number) => ipcRenderer.invoke('graph:searchEntities', query, limit),
     suggestEntityMerges: (options?: { limit?: number; minScore?: number; type?: string }) => ipcRenderer.invoke('graph:suggestEntityMerges', options),
+    listAliases: (entityId?: number) => ipcRenderer.invoke('graph:listAliases', entityId),
+    addAlias: (entityId: number, alias: string) => ipcRenderer.invoke('graph:addAlias', entityId, alias),
+    removeAlias: (id: number) => ipcRenderer.invoke('graph:removeAlias', id),
+    listMergeHistory: (limit?: number) => ipcRenderer.invoke('graph:listMergeHistory', limit),
+    ignoreMergeSuggestion: (nameA: string, nameB: string) => ipcRenderer.invoke('graph:ignoreMergeSuggestion', nameA, nameB),
+    listIgnoredMergePairs: () => ipcRenderer.invoke('graph:listIgnoredMergePairs'),
   },
   dashboard: {
     stats: () => ipcRenderer.invoke('dashboard:stats'),
@@ -77,6 +83,9 @@ const api = {
   },
   audit: {
     list: (filters?: any) => ipcRenderer.invoke('audit:list', filters),
+    retentionGet: () => ipcRenderer.invoke('audit:retentionGet'),
+    retentionSet: (days: number) => ipcRenderer.invoke('audit:retentionSet', days),
+    prune: () => ipcRenderer.invoke('audit:prune'),
   },
   shell: {
     openPath: (filePath: string) => ipcRenderer.invoke('shell:openPath', filePath),

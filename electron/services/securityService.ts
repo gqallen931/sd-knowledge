@@ -1,10 +1,16 @@
 import { createHash, randomBytes, pbkdf2Sync } from 'crypto'
+import * as fs from 'fs'
+import * as path from 'path'
 import DatabaseService from './database'
 
 export class SecurityService {
   private initialized = false
 
-  constructor(private db: DatabaseService) {}
+  constructor(
+    private db: DatabaseService,
+    /** S2-10：审计清理前快照的落盘目录；未提供时清理前不落盘（仅测试场景） */
+    private auditBackupDir?: string,
+  ) {}
 
   async getStatus(): Promise<any> {
     const setting = this.db.prepare("SELECT value FROM settings WHERE key = 'security_enabled'").get() as any
@@ -119,6 +125,51 @@ export class SecurityService {
     params.push(filters.limit || 100)
 
     return this.db.prepare(sql).all(...params)
+  }
+
+  // ── 审计日志清理与轮转（S2-10）──────────────────────────────────────
+
+  /** 审计保留天数：存 settings 表；缺省 90 天，允许 7–365 */
+  async getAuditRetentionDays(): Promise<number> {
+    const settings = await this.db.getSettings()
+    const days = Number((settings as any).audit_retention_days)
+    return Number.isFinite(days) && days >= 7 && days <= 365 ? Math.round(days) : 90
+  }
+
+  async setAuditRetentionDays(days: number): Promise<number> {
+    const n = Math.round(Number(days))
+    if (!Number.isFinite(n) || n < 7 || n > 365) throw new Error('保留天数需为 7–365 的整数')
+    await this.db.updateSettings({ audit_retention_days: String(n) })
+    this.logAudit('user', 'update', 'settings', `audit retention set to ${n} days`)
+    return n
+  }
+
+  /**
+   * 清理保留窗口之外的审计记录。清理前把将删记录快照成 JSON 落盘（审计是追责依据，
+   * 误删不可逆）；快照失败则中止清理并抛错，绝不「没备份就删」。
+   */
+  async pruneAuditLogs(retentionDays?: number): Promise<{ removed: number; remaining: number; snapshot: string | null }> {
+    const days = retentionDays != null ? Math.round(Number(retentionDays)) : await this.getAuditRetentionDays()
+    if (!Number.isFinite(days) || days < 1) throw new Error('保留天数无效')
+
+    const stale = this.db.prepare("SELECT * FROM audit_logs WHERE created_at < datetime('now', '-' || ? || ' days')").all(String(days)) as any[]
+    if (stale.length === 0) {
+      const row = this.db.prepare('SELECT COUNT(*) AS n FROM audit_logs').get() as any
+      return { removed: 0, remaining: Number(row?.n || 0), snapshot: null }
+    }
+
+    let snapshotPath: string | null = null
+    if (this.auditBackupDir) {
+      fs.mkdirSync(this.auditBackupDir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      snapshotPath = path.join(this.auditBackupDir, `audit-pruned-${stamp}.json`)
+      fs.writeFileSync(snapshotPath, JSON.stringify({ pruned_at: new Date().toISOString(), retention_days: days, count: stale.length, rows: stale }, null, 2), 'utf8')
+    }
+
+    this.db.prepare("DELETE FROM audit_logs WHERE created_at < datetime('now', '-' || ? || ' days')").run(String(days))
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM audit_logs').get() as any
+    this.logAudit('user', 'delete', 'audit_log', `pruned ${stale.length} entries older than ${days} days${snapshotPath ? `; snapshot: ${path.basename(snapshotPath)}` : ''}`)
+    return { removed: stale.length, remaining: Number(row?.n || 0), snapshot: snapshotPath }
   }
 
   private hashPassword(password: string, salt: string): string {

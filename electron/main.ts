@@ -382,6 +382,30 @@ function registerIPC() {
     return await graphBuilder.suggestEntityMerges(options)
   })
 
+  handle('graph:listAliases', async (_, entityId?: number) => {
+    return await graphBuilder.listAliases(entityId)
+  })
+
+  handle('graph:addAlias', async (_, entityId: number, alias: string) => {
+    return await graphBuilder.addAlias(entityId, alias)
+  })
+
+  handle('graph:removeAlias', async (_, id: number) => {
+    return await graphBuilder.removeAlias(id)
+  })
+
+  handle('graph:listMergeHistory', async (_, limit?: number) => {
+    return await graphBuilder.listMergeHistory(limit)
+  })
+
+  handle('graph:ignoreMergeSuggestion', async (_, nameA: string, nameB: string) => {
+    return await graphBuilder.ignoreMergeSuggestion(nameA, nameB)
+  })
+
+  handle('graph:listIgnoredMergePairs', async () => {
+    return await graphBuilder.listIgnoredMergePairs()
+  })
+
   handle('dashboard:stats', async () => {
     return { ...await db.getDashboardStats(), api_running: apiServer?.isRunning(), api_port: (await db.getSettings()).api_port, api_error: apiError }
   })
@@ -452,6 +476,19 @@ function registerIPC() {
 
   handle('audit:list', async (_, filters: any) => {
     return await securityService.getAuditLogs(filters)
+  })
+
+  // S2-10：审计保留天数与清理（清理前自动快照到 backups/audit/）
+  handle('audit:retentionGet', async () => {
+    return await securityService.getAuditRetentionDays()
+  })
+
+  handle('audit:retentionSet', async (_, days: number) => {
+    return await securityService.setAuditRetentionDays(days)
+  })
+
+  handle('audit:prune', async () => {
+    return await securityService.pruneAuditLogs()
   })
 
   // 工作台域：与 Web 入口共用同一份方法表（services/workbench/rpcHandlers.ts），
@@ -525,7 +562,7 @@ if (process.argv.includes('--mcp')) {
   db = new DatabaseService(path.join(dataDir, 'sd.db'))
   await db.init()
 
-  securityService = new SecurityService(db)
+  securityService = new SecurityService(db, path.join(dataDir, 'backups', 'audit'))
   fileService = new FileService(db, dataDir)
   searchService = new SearchService(db)
   graphBuilder = new GraphBuilder(db)

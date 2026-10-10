@@ -106,6 +106,13 @@ async function main() {
     'graph.searchNodes': (q, l) => r.graph.searchNodes(q, l),
     'graph.searchEntities': (q, l) => r.graph.searchEntities(q, l),
     'graph.suggestEntityMerges': o => r.graph.suggestEntityMerges(o),
+    // S2-08：实体别名 / 合并历史 / 忽略记忆
+    'graph.listAliases': (id?: number) => r.graph.listAliases(id),
+    'graph.addAlias': (id: number, alias: string) => r.graph.addAlias(id, alias),
+    'graph.removeAlias': (id: number) => r.graph.removeAlias(id),
+    'graph.listMergeHistory': (l?: number) => r.graph.listMergeHistory(l),
+    'graph.ignoreMergeSuggestion': (a: string, b: string) => r.graph.ignoreMergeSuggestion(a, b),
+    'graph.listIgnoredMergePairs': () => r.graph.listIgnoredMergePairs(),
     'settings.get': () => r.db.getSettings(),
     'settings.update': async s => {
       if (s.api_port && (!Number.isInteger(Number(s.api_port)) || Number(s.api_port) < 1024 || Number(s.api_port) > 65535)) throw new Error('端口必须为 1024–65535 的整数')
@@ -122,7 +129,12 @@ async function main() {
     'security.status': () => r.security.getStatus(), 'security.setup': p => r.security.setup(p),
     'security.verify': p => r.security.verify(p), 'security.apiKeys.list': () => r.security.listApiKeys(),
     'security.apiKeys.create': (n, role) => r.security.createApiKey(n, role),
-    'security.apiKeys.revoke': id => r.security.revokeApiKey(id), 'audit.list': f => r.security.getAuditLogs(f),
+    'security.apiKeys.revoke': id => r.security.revokeApiKey(id),
+    'audit.list': f => r.security.getAuditLogs(f),
+    // S2-10：审计保留天数与清理
+    'audit.retentionGet': () => r.security.getAuditRetentionDays(),
+    'audit.retentionSet': (days: number) => r.security.setAuditRetentionDays(days),
+    'audit.prune': () => r.security.pruneAuditLogs(),
   }
   app.post('/local/rpc', async (req, res, next) => {
     try {

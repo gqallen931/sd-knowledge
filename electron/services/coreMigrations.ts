@@ -254,4 +254,51 @@ export const coreMigrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_saved_searches_owner ON saved_searches(owner);`)
     },
   },
+  {
+    version: 8,
+    name: 'entity-aliases-and-merge-history',
+    /**
+     * 实体别名 / 合并历史 / 忽略记忆（S2-08）。
+     *
+     * - `entity_aliases`：别名全局归一到唯一实体（UNIQUE alias NOCASE）；合并时被并实体名自动落一条
+     *   `source='merge'`，合并后按旧名仍可检索到。
+     * - `entity_merge_history`：每次合并落一行可回看的记录（幸存者、被并者、转移边数）。
+     * - `entity_merge_ignores`：消歧建议里「不是同一个东西」的组合记下来，下次扫描不再出现。
+     *
+     * 幂等：DDL 全部 IF NOT EXISTS。
+     */
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS entity_aliases (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+          alias      TEXT NOT NULL,
+          source     TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','merge')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (alias COLLATE NOCASE)
+        );
+        CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
+
+        CREATE TABLE IF NOT EXISTS entity_merge_history (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          survivor_id     INTEGER NOT NULL,
+          merged_id       INTEGER NOT NULL,
+          merged_name     TEXT NOT NULL,
+          merged_type     TEXT,
+          edges_relocated INTEGER NOT NULL DEFAULT 0,
+          performed_by    TEXT,
+          created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_entity_merge_history_survivor ON entity_merge_history(survivor_id);
+
+        CREATE TABLE IF NOT EXISTS entity_merge_ignores (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name_a     TEXT NOT NULL,
+          name_b     TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (name_a, name_b)
+        );
+      `)
+    },
+  },
 ]

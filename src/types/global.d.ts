@@ -631,6 +631,13 @@ export interface SDAPI extends SDWorkbenchApi {
         detail: string
       }>
     }>
+    /** S2-08：实体别名 / 合并历史 / 忽略记忆 */
+    listAliases: (entityId?: number) => Promise<any[]>
+    addAlias: (entityId: number, alias: string) => Promise<any>
+    removeAlias: (id: number) => Promise<boolean>
+    listMergeHistory: (limit?: number) => Promise<any[]>
+    ignoreMergeSuggestion: (nameA: string, nameB: string) => Promise<any>
+    listIgnoredMergePairs: () => Promise<any[]>
   }
   dashboard: {
     stats: () => Promise<any>
@@ -677,6 +684,10 @@ export interface SDAPI extends SDWorkbenchApi {
   }
   audit: {
     list: (filters?: any) => Promise<any[]>
+    /** S2-10：审计保留天数（缺省 90，允许 7–365）与手动清理（清理前自动快照） */
+    retentionGet: () => Promise<number>
+    retentionSet: (days: number) => Promise<number>
+    prune: () => Promise<{ removed: number; remaining: number; snapshot: string | null }>
   }
   shell: {
     openPath: (filePath: string) => Promise<void>

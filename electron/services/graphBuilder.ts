@@ -435,6 +435,14 @@ export class GraphBuilder {
       this.db.prepare('UPDATE entities SET description = ? WHERE id = ?').run(source.description, targetId)
     }
 
+    // S2-08：被并实体名留作别名（合并后按旧名仍能定位到幸存者）+ 落一条可回看的合并历史
+    this.db.prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias, source) VALUES (?, ?, 'merge')")
+      .run(targetId, source.name)
+    this.db.prepare(`
+      INSERT INTO entity_merge_history (survivor_id, merged_id, merged_name, merged_type, edges_relocated, performed_by)
+      VALUES (?, ?, ?, ?, ?, 'user')
+    `).run(targetId, source.id, source.name, source.type ?? null, moved)
+
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(sourceId)
     return { source, target, moved, deduped }
   }
@@ -787,9 +795,16 @@ export class GraphBuilder {
       }))
       .filter(it => it.norm && (!typeFilter || it.type === typeFilter))
 
+    // S2-08 忽略记忆：用户明确说过「不是同一个东西」的组合不再出现在建议里
+    const ignoredPairs = new Set(
+      (this.db.prepare('SELECT name_a, name_b FROM entity_merge_ignores').all() as any[])
+        .map(r => mergeIgnorePairKey(r.name_a, r.name_b)),
+    )
+
     const found: any[] = []
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
+        if (ignoredPairs.has(mergeIgnorePairKey(items[i].norm, items[j].norm))) continue
         const hit = this.compareEntityPair(items[i], items[j])
         if (hit && hit.score >= minScore) found.push(hit)
       }
@@ -807,6 +822,77 @@ export class GraphBuilder {
     }
   }
 
+  // ── 实体别名 / 合并历史 / 忽略记忆（S2-08）──────────────────────────
+
+  /** 实体别名列表；不传 entityId 时返回全部（附实体名，供管理面板展示） */
+  listAliases(entityId?: number): any[] {
+    if (entityId != null) {
+      return this.db.prepare(`
+        SELECT a.id, a.entity_id, a.alias, a.source, a.created_at, e.name AS entity_name, e.type AS entity_type
+        FROM entity_aliases a LEFT JOIN entities e ON e.id = a.entity_id
+        WHERE a.entity_id = ? ORDER BY a.id
+      `).all(Number(entityId)) as any[]
+    }
+    return this.db.prepare(`
+      SELECT a.id, a.entity_id, a.alias, a.source, a.created_at, e.name AS entity_name, e.type AS entity_type
+      FROM entity_aliases a LEFT JOIN entities e ON e.id = a.entity_id
+      ORDER BY a.id DESC LIMIT 200
+    `).all() as any[]
+  }
+
+  /**
+   * 给实体补一个别名。别名全局唯一（大小写不敏感）：被别的实体占用时给出可读错误，
+   * 而不是静默丢弃——否则用户会以为保存成功了。
+   */
+  addAlias(entityId: number, rawAlias: string): any {
+    const entity = this.db.prepare('SELECT id, name FROM entities WHERE id = ?').get(Number(entityId)) as any
+    if (!entity) throw new Error('实体不存在')
+    const alias = this.normalizeEntityName(rawAlias)
+    if (!alias) throw new Error('别名不能为空')
+    if (alias.length > 200) throw new Error('别名不能超过 200 个字符')
+
+    const owner = this.db.prepare('SELECT entity_id FROM entity_aliases WHERE alias = ? COLLATE NOCASE').get(alias) as any
+    if (owner) {
+      if (Number(owner.entity_id) === Number(entityId)) return { success: true, unchanged: true, alias }
+      const ownerEntity = this.db.prepare('SELECT name FROM entities WHERE id = ?').get(Number(owner.entity_id)) as any
+      throw new Error(`别名「${alias}」已被实体「${ownerEntity?.name ?? `#${owner.entity_id}`}」占用`)
+    }
+    this.db.prepare("INSERT INTO entity_aliases (entity_id, alias, source) VALUES (?, ?, 'manual')").run(Number(entityId), alias)
+    this.logAudit(`addAlias: "${alias}" -> "${entity.name}" (#${Number(entityId)})`)
+    return { success: true, alias }
+  }
+
+  removeAlias(id: number): boolean {
+    const removed = this.db.prepare('DELETE FROM entity_aliases WHERE id = ?').run(Number(id)).changes > 0
+    if (removed) this.logAudit(`removeAlias: #${Number(id)}`)
+    return removed
+  }
+
+  /** 合并历史（最近在前）；幸存者可能后来又被并走/删除，名字取得到就带、取不到就留空 */
+  listMergeHistory(limit: number = 50): any[] {
+    return this.db.prepare(`
+      SELECT h.*, e.name AS survivor_name, e.type AS survivor_type
+      FROM entity_merge_history h LEFT JOIN entities e ON e.id = h.survivor_id
+      ORDER BY h.id DESC LIMIT ?
+    `).all(Math.min(200, Math.max(1, Number(limit) || 50))) as any[]
+  }
+
+  /** 消歧建议「忽略这组」：写入忽略记忆（键序归一），下次扫描不再出现 */
+  ignoreMergeSuggestion(nameA: string, nameB: string): any {
+    const a = this.normalizeEntityName(nameA)
+    const b = this.normalizeEntityName(nameB)
+    if (!a || !b) throw new Error('实体名称不能为空')
+    if (a === b) throw new Error('两个名称相同，无需忽略')
+    const [lo, hi] = [a, b].sort((x, y) => x.localeCompare(y, 'zh-CN'))
+    this.db.prepare('INSERT OR IGNORE INTO entity_merge_ignores (name_a, name_b) VALUES (?, ?)').run(lo, hi)
+    this.logAudit(`ignoreMergeSuggestion: "${lo}" / "${hi}"`)
+    return { success: true, pair: [lo, hi] }
+  }
+
+  listIgnoredMergePairs(): any[] {
+    return this.db.prepare('SELECT * FROM entity_merge_ignores ORDER BY id DESC LIMIT 200').all() as any[]
+  }
+
   private logAudit(details: string) {
     try {
       this.db.prepare(`
@@ -815,4 +901,11 @@ export class GraphBuilder {
       `).run(details)
     } catch { /* 审计失败不影响主流程 */ }
   }
+}
+
+/** 忽略记忆的键：无序对归一成确定顺序，写入与比对两侧必须用同一把尺子 */
+function mergeIgnorePairKey(a: string, b: string): string {
+  return [String(a ?? '').trim().toLowerCase(), String(b ?? '').trim().toLowerCase()]
+    .sort((x, y) => x.localeCompare(y, 'zh-CN'))
+    .join('\u0001')
 }

@@ -71,11 +71,11 @@ if (!window.sd) {
     dashboard: group('dashboard', ['stats', 'recent']),
     queue: group('queue', ['status']),
     project: group('project', ['list', 'create', 'update', 'remove', 'assign', 'assignMany']),
-    graph: group('graph', ['nodes', 'edges', 'entity', 'stats', 'addRelationship', 'deleteRelationship', 'mergeEntities', 'mergeEntitiesBatch', 'renameEntity', 'batchRenameEntities', 'searchNodes', 'searchEntities', 'suggestEntityMerges', 'overview', 'bridges', 'entities']),
+    graph: group('graph', ['nodes', 'edges', 'entity', 'stats', 'addRelationship', 'deleteRelationship', 'mergeEntities', 'mergeEntitiesBatch', 'renameEntity', 'batchRenameEntities', 'searchNodes', 'searchEntities', 'suggestEntityMerges', 'overview', 'bridges', 'entities', 'listAliases', 'addAlias', 'removeAlias', 'listMergeHistory', 'ignoreMergeSuggestion', 'listIgnoredMergePairs']),
     search: group('search', ['fulltext', 'semantic']),
     settings: group('settings', ['get', 'update']),
     security: { ...group('security', ['status', 'setup', 'verify']), apiKeys: group('security.apiKeys', ['list', 'create', 'revoke']) },
-    audit: group('audit', ['list']),
+    audit: group('audit', ['list', 'retentionGet', 'retentionSet', 'prune']),
     shell: { openPath: async () => { throw new Error('请在桌面版中打开本地文件') }, showInFolder: async () => { throw new Error('请在桌面版中打开文件夹') } },
     on: () => () => {},
   } as any
