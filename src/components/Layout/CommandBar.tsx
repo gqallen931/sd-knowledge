@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { SHORTCUTS, EXTRA_PAGES } from '../../shortcuts'
 
 interface CommandBarProps {
   open: boolean
@@ -7,14 +8,10 @@ interface CommandBarProps {
   onOpen?: () => void
 }
 
+/** 页面清单与数字键提示都从 shortcuts.ts 派生，键位与 App.tsx 的全局监听天然一致 */
 const commands = [
-  { label: '工作台', type: '页面', icon: 'W', path: '/workbench', hint: '1' },
-  { label: '仪表盘', type: '页面', icon: 'D', path: '/', hint: '2' },
-  { label: '文件管理', type: '页面', icon: 'F', path: '/files', hint: '3' },
-  { label: '知识图谱', type: '页面', icon: 'G', path: '/graph', hint: '4' },
-  { label: '搜索中心', type: '页面', icon: 'S', path: '/search', hint: '5' },
-  { label: '设置', type: '页面', icon: 'T', path: '/settings', hint: '6' },
-  { label: '项目集', type: '页面', icon: 'P', path: '/projects', hint: '—' },
+  ...SHORTCUTS.map((s) => ({ label: s.label, type: '页面', icon: s.icon, path: s.path, hint: s.key })),
+  ...EXTRA_PAGES.map((s) => ({ label: s.label, type: '页面', icon: s.icon, path: s.path, hint: '—' })),
 ]
 
 export default function CommandBar({ open, onClose, onNavigate, onOpen }: CommandBarProps) {

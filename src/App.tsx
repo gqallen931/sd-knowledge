@@ -17,53 +17,63 @@ import Messages from './pages/Messages'
 import Share from './pages/Share'
 import WorkbenchPage from './workbench/WorkbenchPage'
 import { WorkbenchProvider } from './workbench/WorkbenchContext'
+import { SHORTCUTS, readThemeChoice, type ThemeChoice } from './shortcuts'
 import './workbench/dashboard.css'
-
-/**
- * 数字快捷键映射（1–7）。日程 /analytics 等新页面暂不在其中：
- * S2-06 导航收敛时会与侧栏顺序一起重排定稿。
- */
-const ROUTES = ['/workbench', '/', '/files', '/graph', '/search', '/settings', '/ask'] as const
 
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [theme, setTheme] = useState<ThemeChoice>('dark')
   const [cmdOpen, setCmdOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    const saved = localStorage.getItem('sd-theme') as 'dark' | 'light' || 'dark'
-    setTheme(saved)
-    applyTheme(saved)
+    setTheme(readThemeChoice())
+    applyTheme(readThemeChoice())
+  }, [])
 
+  useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setCmdOpen(o => !o)
+        return
       }
-      if (e.key === 'Escape') { setCmdOpen(false); setSidebarOpen(false) }
-      const numKeys = ROUTES.map((_, i) => String(i + 1))
-      if (numKeys.includes(e.key) && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.tagName?.match(/INPUT|TEXTAREA/)) {
-        navigate(ROUTES[parseInt(e.key) - 1])
-      }
+      if (e.key === 'Escape') { setCmdOpen(false); setSidebarOpen(false); return }
+      // 命令面板打开时数字键不再切换页面，避免面板遮挡下页面在背后跳转
+      if (cmdOpen) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+      const hit = SHORTCUTS.find((s) => s.key === e.key)
+      if (hit && !e.metaKey && !e.ctrlKey && !e.altKey) navigate(hit.path)
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [navigate])
+  }, [navigate, cmdOpen])
 
-  const applyTheme = (t: string) => {
+  /** S2-13：跟随系统时以 matchMedia 求解析，落出的类名与手动选择完全一致 */
+  const applyTheme = (choice: ThemeChoice) => {
+    const resolved = choice === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : choice
     const root = document.documentElement
-    if (t === 'light') root.classList.add('light')
-    else root.classList.remove('light')
-    root.classList.remove('dark')
-    if (t === 'dark') root.classList.add('dark')
+    root.classList.toggle('light', resolved === 'light')
+    root.classList.toggle('dark', resolved === 'dark')
   }
 
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark'
+  // 仅「跟随系统」时挂监听：系统深浅切换即时生效；手动选择永久覆盖系统
+  useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => applyTheme('system')
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [theme])
+
+  const setThemeChoice = (next: ThemeChoice) => {
     setTheme(next)
     localStorage.setItem('sd-theme', next)
     applyTheme(next)
@@ -79,7 +89,7 @@ export default function App() {
           currentPath={location.pathname}
           onNavigate={(p) => { setSidebarOpen(false); navigate(p) }}
             theme={theme}
-            onToggleTheme={toggleTheme}
+            onSetTheme={setThemeChoice}
             onOpenSettings={() => setSettingsOpen(true)}
           onOpenAuth={() => setAuthOpen(true)}
           open={sidebarOpen}

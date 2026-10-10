@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useWorkbenchContext } from '../../workbench/WorkbenchContext'
+import type { ThemeChoice } from '../../shortcuts'
 import {
   IconArchive,
   IconBook,
   IconCalendar,
   IconChart,
+  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconChevronsUpDown,
@@ -13,6 +15,7 @@ import {
   IconGrid,
   IconLayers,
   IconLogout,
+  IconMonitor,
   IconMoon,
   IconPlus,
   IconSearch,
@@ -25,8 +28,8 @@ import {
 interface Props {
   currentPath: string
   onNavigate: (path: string) => void
-  theme: 'dark' | 'light'
-  onToggleTheme: () => void
+  theme: ThemeChoice
+  onSetTheme: (choice: ThemeChoice) => void
   onOpenSettings: () => void
   /** 点击 sd 头像或「未登录」时打开登录注册弹窗 */
   onOpenAuth: () => void
@@ -40,21 +43,24 @@ interface NavItem {
   icon: ReactNode
   /** 参照稿中的激活项右侧带一个 chevron */
   chevron?: boolean
-  /** SD 尚无对应页面：照参照稿保留该项，置灰并标注 */
-  pending?: boolean
 }
 
 const ROLE_LABEL: Record<string, string> = { owner: '本机所有者', member: '成员' }
 
-/** 顺序与文案完全照参照稿的 8 项；末尾两项是 SD 自有页面，避免失去入口 */
+/** 主题三选项（S2-13）：跟随系统即时响应系统深浅，手动选择永久覆盖 */
+const THEME_OPTIONS: Array<{ value: ThemeChoice; label: string; icon: ReactNode }> = [
+  { value: 'system', label: '跟随系统', icon: <IconMonitor /> },
+  { value: 'dark', label: '深色', icon: <IconMoon /> },
+  { value: 'light', label: '浅色', icon: <IconSun /> },
+]
+
+/** 顺序与文案完全照参照稿；问答置顶是 S1-05 主线页面的既定安排 */
 const NAV: NavItem[] = [
-  // 问答（S1-05）：S1 主线页面，置顶放置；数字键 7（见 App.tsx 的 ROUTES，避免改动既有 1–6）
   { label: '问答', path: '/ask', icon: <IconSpark /> },
   { label: '任务管理', path: '/workbench', icon: <IconGrid />, chevron: true },
   { label: '项目总览', path: '/projects', icon: <IconLayers /> },
   { label: '文件归档', path: '/files', icon: <IconArchive /> },
   { label: '日程管理', path: '/calendar', icon: <IconCalendar /> },
-  { label: '团队协作', icon: <IconUsers />, pending: true },
   { label: '智能分析', path: '/analytics', icon: <IconChart /> },
   { label: '知识库', path: '/', icon: <IconBook /> },
   { label: '资源汇', path: '/resources', icon: <IconLayers /> },
@@ -70,7 +76,7 @@ const NAV: NavItem[] = [
  * 工作区与项目挂在这里，而不是在工作台页内再开一条左栏 —— 参照稿的侧栏
  * 本身就是域感知的；数据来自 WorkbenchProvider，与工作台页共享同一份状态。
  */
-export default function AppSidebar({ currentPath, onNavigate, theme, onToggleTheme, onOpenSettings, onOpenAuth, open = false }: Props) {
+export default function AppSidebar({ currentPath, onNavigate, theme, onSetTheme, onOpenSettings, onOpenAuth, open = false }: Props) {
   const { model, filter, setFilter, act } = useWorkbenchContext()
   const { auth, snapshot, logout } = model
 
@@ -100,15 +106,6 @@ export default function AppSidebar({ currentPath, onNavigate, theme, onToggleThe
       <nav className="wb-nav" aria-label="主导航">
         {NAV.map((item) => {
           const active = item.path != null && currentPath === item.path
-          if (item.pending) {
-            return (
-              <button key={item.label} className="wb-nav__item" disabled title="还没有对应页面，待接入">
-                {item.icon}
-                {item.label}
-                <span className="wb-nav__badge">待接入</span>
-              </button>
-            )
-          }
           return (
             <button
               key={item.label}
@@ -198,16 +195,24 @@ export default function AppSidebar({ currentPath, onNavigate, theme, onToggleThe
           </button>
           {accountOpen && (
             <div className="wb-account__menu">
-              <button
-                className="wb-account__item"
-                onClick={() => {
-                  onToggleTheme()
-                  setAccountOpen(false)
-                }}
-              >
-                {theme === 'dark' ? <IconSun /> : <IconMoon />}
-                {theme === 'dark' ? '切换到浅色' : '切换到深色'}
-              </button>
+              {THEME_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className="wb-account__item"
+                  onClick={() => {
+                    onSetTheme(option.value)
+                    setAccountOpen(false)
+                  }}
+                >
+                  {option.icon}
+                  {option.label}
+                  {theme === option.value && (
+                    <span className="wb-account__check" style={{ marginLeft: 'auto', display: 'inline-flex', color: 'var(--primary)' }}>
+                      <IconCheck />
+                    </span>
+                  )}
+                </button>
+              ))}
               <button
                 className="wb-account__item"
                 onClick={() => {
