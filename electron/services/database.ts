@@ -512,7 +512,7 @@ export default class DatabaseService {
         (SELECT COUNT(*) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS queries,
         (SELECT AVG(result_count) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS avg_results,
         (SELECT AVG(response_time_ms) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS avg_latency_ms
-      FROM days ORDER BY day`).all(days - 1) as any[]
+      FROM days ORDER BY day`).all() as any[]
 
     const one = (sql: string) => Number((this.db.prepare(sql).get() as any)?.value || 0)
     const totals = {

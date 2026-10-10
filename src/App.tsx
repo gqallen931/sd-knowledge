@@ -11,13 +11,15 @@ import Projects from './pages/Projects'
 import Settings from './pages/Settings'
 import Ask from './pages/Ask'
 import Resources from './pages/Resources'
+import Calendar from './pages/Calendar'
+import Analytics from './pages/Analytics'
 import WorkbenchPage from './workbench/WorkbenchPage'
 import { WorkbenchProvider } from './workbench/WorkbenchContext'
 import './workbench/dashboard.css'
 
 /**
- * 导航顺序与数字快捷键一致（见下方 numKeys）。
- * 问答 `/ask` 追加在末尾 → 数字键 7；**不改动既有 1–6 的映射**（S2-06 才会统一重排导航）。
+ * 数字快捷键映射（1–7）。日程 /analytics 等新页面暂不在其中：
+ * S2-06 导航收敛时会与侧栏顺序一起重排定稿。
  */
 const ROUTES = ['/workbench', '/', '/files', '/graph', '/search', '/settings', '/ask'] as const
 
@@ -98,6 +100,8 @@ export default function App() {
               <Route path="/projects" element={<Projects />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/resources" element={<Resources />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/analytics" element={<Analytics />} />
             </Routes>
           </div>
         )}

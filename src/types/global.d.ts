@@ -238,6 +238,62 @@ export interface SDGatewayStatus {
   reason: string
 }
 
+/** 日程页的日程单元（S2-01）：与 SDTask 同源，date 为服务端归一后的本地日（YYYY-MM-DD） */
+export interface SDCalendarTask {
+  id: string
+  name: string
+  status: SDTaskStatus
+  priority: SDTaskPriority
+  deadline: string | null
+  /** 服务端 date(deadline) 归一结果；跨天判定以它为准 */
+  date: string
+  owner: string
+  projectName: string | null
+}
+
+/** 日程页的提醒单元（S2-01）：date/time 为 remind_at 转本地口径后的结果 */
+export interface SDCalendarReminder {
+  id: number
+  taskCode: string | null
+  title: string
+  remindAt: string
+  repeatRule: string
+  status: string
+  /** 本地日 YYYY-MM-DD（SQL date(…,'localtime')） */
+  date: string
+  /** 本地时间 HH:mm */
+  time: string
+}
+
+/** 日程页聚合（S2-01）：口径唯一真相源在服务端（today / date 字段），前端只做视图渲染 */
+export interface SDCalendarData {
+  today: string
+  days: number
+  tasks: SDCalendarTask[]
+  todayTasks: SDCalendarTask[]
+  overdue: SDCalendarTask[]
+  unscheduled: Array<{ id: string; name: string; status: SDTaskStatus; priority: SDTaskPriority; projectName: string | null }>
+  reminders: SDCalendarReminder[]
+}
+
+/** 分析页聚合（S2-02）：规模统计 + 近 N 天趋势；样本不足时 sample.note 给出可读说明 */
+export interface SDAnalyticsOverview {
+  windowDays: number
+  totals: {
+    documents: number
+    chunks: number
+    entities: number
+    relationships: number
+    projects: number
+    localFiles: number
+    referenceFiles: number
+    indexedFiles: number
+  }
+  queries: { total: number; avgResults: number | null; avgLatencyMs: number | null; lastAt: string | null }
+  sample: { queries: number; sufficient: boolean; note: string | null }
+  trend: Array<{ date: string; documents: number; queries: number; avgResults: number | null; avgLatencyMs: number | null }>
+}
+
 /** 摄像头感知层可用性（ADR-003 决策 5） */
 export interface SDPerceptionStatus {
   available: boolean
@@ -438,6 +494,8 @@ export interface SDWorkbenchApi {
     dashboard: () => Promise<any>
     /** 跨域时间线：任务截止 + 文档入库，按日期倒序 */
     timeline: (options?: { days?: number; limit?: number }) => Promise<SDTimelineEvent[]>
+    /** 日程页聚合（S2-01）：任务分桶 + 今日待办 + 逾期 + 提醒，日期口径以服务端为准 */
+    calendar: (options?: { days?: number }) => Promise<SDCalendarData>
     search: (query: string, options?: { limit?: number; source_id?: number | null; folder_path?: string | null; project_id?: number | null }) => Promise<{ tasks: any[]; projects: any[]; files: any[]; documents: SDResultSet<SDSearchHit>; documentSearchMode: 'fulltext' | 'semantic' | 'hybrid' }>
     workspaces: () => Promise<SDWorkspace[]>
     workspace: {
