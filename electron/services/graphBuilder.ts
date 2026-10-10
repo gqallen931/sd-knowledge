@@ -435,7 +435,10 @@ export class GraphBuilder {
       this.db.prepare('UPDATE entities SET description = ? WHERE id = ?').run(source.description, targetId)
     }
 
-    // S2-08：被并实体名留作别名（合并后按旧名仍能定位到幸存者）+ 落一条可回看的合并历史
+    // S2-08：被并实体名留作别名（合并后按旧名仍能定位到幸存者）+ 落一条可回看的合并历史。
+    // 先摘掉源实体自己的别名：否则源实体的 manual 别名与旧名 NOCASE 撞车时，
+    // INSERT OR IGNORE 会吞掉合并别名，而那一行又随源实体级联删除——旧名就再也定位不到幸存者了。
+    this.db.prepare('DELETE FROM entity_aliases WHERE entity_id = ?').run(sourceId)
     this.db.prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias, source) VALUES (?, ?, 'merge')")
       .run(targetId, source.name)
     this.db.prepare(`

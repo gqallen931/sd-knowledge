@@ -194,6 +194,12 @@ async function main() {
     }
   })
   app.use(express.static(path.resolve(__dirname, '../dist')))
+  // SPA history 回退：/files、/search 这类前端路由直达时返回 index.html，由 react-router 接管。
+  // API 与 /local 前缀不走回退，保持 404/JSON 语义。
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/local')) return next()
+    res.sendFile(path.resolve(__dirname, '../dist', 'index.html'))
+  })
   app.use((err: Error, _req: any, res: any, _next: any) => {
     const unauthenticated = err.message === 'AUTH_REQUIRED'
     res.status(unauthenticated ? 401 : 400).json({ error: unauthenticated ? '请先登录' : err.message })
