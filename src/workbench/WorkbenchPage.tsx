@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { SDChunkAnchor, SDFolder } from '../types/global'
 import AuthScreen from './AuthScreen'
 import Notifications from './Notifications'
@@ -126,6 +127,7 @@ function StatCard({
  * 都是参照稿的元素；只有数据换成 SD 的真实来源，缺数据的项按约定置灰或标注。
  */
 export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSidebar }: Props) {
+  const navigate = useNavigate()
   const { model, filter, setFilter, selectedId, setSelectedId, act } = useWorkbenchContext()
   const {
     auth, ready, loading, error, setError, snapshot, groups, tasks,
@@ -360,7 +362,7 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
               onRemoveReminder={(id) => act(() => window.sd.reminder.remove(id))}
               onSelectTask={(taskCode) => setSelectedId(taskCode)}
             />
-            <button className="wb-iconbtn" disabled title="还没有消息模块，待接入">
+            <button className="wb-iconbtn" title="消息中心" onClick={() => navigate('/messages')}>
               <IconMail />
             </button>
             <button className="wb-btn-new" disabled={groups.length === 0} onClick={() => setCreating(true)}>

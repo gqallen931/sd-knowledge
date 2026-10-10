@@ -294,6 +294,15 @@ export interface SDAnalyticsOverview {
   trend: Array<{ date: string; documents: number; queries: number; avgResults: number | null; avgLatencyMs: number | null }>
 }
 
+/** 共享快照导出结果（S2-05）：文件落 Data/exports/，只回传摘要（counts + 路径），不回传正文 */
+export interface SDShareSnapshotResult {
+  path: string
+  fileName: string
+  size: number
+  counts: Record<string, number>
+  exportedAt: string
+}
+
 /** 摄像头感知层可用性（ADR-003 决策 5） */
 export interface SDPerceptionStatus {
   available: boolean
@@ -750,6 +759,10 @@ export interface SDAPI extends SDWorkbenchApi {
   /** S2-02：分析页聚合（知识库规模 + 近 N 天入库/问答命中趋势，样本不足如实标注） */
   analytics: {
     overview: (options?: { days?: number }) => Promise<SDAnalyticsOverview>
+  }
+  /** S2-05：共享快照导出（自包含 JSON，剥离密钥/明文敏感字段；不含向量、密钥、审计与出域日志） */
+  share: {
+    exportSnapshot: () => Promise<SDShareSnapshotResult>
   }
   shell: {
     openPath: (filePath: string) => Promise<void>

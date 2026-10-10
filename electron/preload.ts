@@ -90,6 +90,9 @@ const api = {
   analytics: {
     overview: (options?: { days?: number }) => ipcRenderer.invoke('analytics:overview', options),
   },
+  share: {
+    exportSnapshot: () => ipcRenderer.invoke('share:exportSnapshot'),
+  },
   shell: {
     openPath: (filePath: string) => ipcRenderer.invoke('shell:openPath', filePath),
     showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),

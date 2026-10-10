@@ -13,6 +13,8 @@ import Ask from './pages/Ask'
 import Resources from './pages/Resources'
 import Calendar from './pages/Calendar'
 import Analytics from './pages/Analytics'
+import Messages from './pages/Messages'
+import Share from './pages/Share'
 import WorkbenchPage from './workbench/WorkbenchPage'
 import { WorkbenchProvider } from './workbench/WorkbenchContext'
 import './workbench/dashboard.css'
@@ -102,6 +104,8 @@ export default function App() {
               <Route path="/resources" element={<Resources />} />
               <Route path="/calendar" element={<Calendar />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/messages" element={<Messages />} />
+              <Route path="/share" element={<Share />} />
             </Routes>
           </div>
         )}

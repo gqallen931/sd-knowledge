@@ -137,6 +137,8 @@ async function main() {
     'audit.prune': () => r.security.pruneAuditLogs(),
     // S2-02：分析页聚合（知识库规模 + 入库/命中趋势）
     'analytics.overview': (options?: { days?: number }) => r.db.getAnalyticsOverview(options?.days),
+    // S2-05：共享快照导出（自包含 JSON，剥离密钥/明文敏感字段）
+    'share.exportSnapshot': () => r.backup.exportSnapshot(r.dataManager),
   }
   app.post('/local/rpc', async (req, res, next) => {
     try {

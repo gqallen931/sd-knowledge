@@ -496,6 +496,11 @@ function registerIPC() {
     return await db.getAnalyticsOverview(options?.days)
   })
 
+  // S2-05：共享快照导出（自包含 JSON，剥离密钥/明文敏感字段，落 Data/exports/）
+  handle('share:exportSnapshot', async () => {
+    return backupService.exportSnapshot(dataManager)
+  })
+
   // 工作台域：与 Web 入口共用同一份方法表（services/workbench/rpcHandlers.ts），
   // 所有方法走一个通道，避免每加一个接口就改三处（方法表 / preload / 前端门面）
   const workbenchRpc = createWorkbenchRpc({
