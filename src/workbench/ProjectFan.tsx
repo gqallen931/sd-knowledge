@@ -121,6 +121,13 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
   floatPosRef.current = floatPos
   const floatDragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
   const floatLiveRef = useRef<{ x: number; y: number } | null>(null)
+  /** 浮卡同时承载「拖动换位」与「点击聚焦项目」：位移超过阈值才算拖动，松手未拖动即按点击处理 */
+  const floatMovedRef = useRef(false)
+  /** 点击 / 键盘 Enter 视为「聚焦居中卡项目」（与点扇面卡同一动作） */
+  const focusActiveProject = useCallback(() => {
+    const project = cardsRef.current[activeRef.current]
+    if (project) onPickRef.current(project.id)
+  }, [])
 
   /** 居中索引落定：同步 ref（供命令式布局读）与 state（供悬浮卡渲染） */
   const goActive = useCallback((idx: number) => {
@@ -208,19 +215,19 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
     const start = floatPosRef.current
     floatDragRef.current = { px: e.clientX, py: e.clientY, x: start.x, y: start.y }
     floatLiveRef.current = start
-    try {
-      el.setPointerCapture(e.pointerId)
-    } catch {
-      /* 不支持指针捕获时退化为普通拖拽 */
-    }
+    floatMovedRef.current = false
     setFloatDragging(true)
+    // 不用 setPointerCapture：它会把 pointerup 重定向到捕获元素，叠加浮卡的 3D transform 后
+    // 部分真实输入环境下收尾事件不可靠。改用 window 级监听（与参照稿同款朴素模型）。
   }
 
-  const onFloatMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onFloatMove = (clientX: number, clientY: number) => {
     const drag = floatDragRef.current
     if (!drag) return
+    // 与扇面卡同一判定口径：位移 ≥5px 才算拖动，以下仍按点击处理
+    if (Math.abs(clientX - drag.px) >= 5 || Math.abs(clientY - drag.py) >= 5) floatMovedRef.current = true
     // 用位移增量而不是绝对坐标换算，省掉边框与内边距带来的坐标系误差
-    const next = clampFloatPos(drag.x + (e.clientX - drag.px), drag.y + (e.clientY - drag.py))
+    const next = clampFloatPos(drag.x + (clientX - drag.px), drag.y + (clientY - drag.py))
     floatLiveRef.current = next
     const el = floatRef.current
     if (el) {
@@ -229,17 +236,15 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
     }
   }
 
-  const onFloatUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onFloatUp = (cancelled: boolean) => {
     if (!floatDragRef.current) return
+    const clicked = !floatMovedRef.current && !cancelled
     floatDragRef.current = null
     setFloatDragging(false)
-    try {
-      floatRef.current?.releasePointerCapture(e.pointerId)
-    } catch {
-      /* 已经释放 */
-    }
+    // 点击（未拖动）：聚焦当前居中卡项目；拖动：仅记忆落点
+    if (clicked) focusActiveProject()
     const next = floatLiveRef.current
-    if (next) {
+    if (next && floatMovedRef.current) {
       setFloatPos(next)
       try {
         localStorage.setItem(FLOAT_POS_KEY, JSON.stringify(next))
@@ -248,6 +253,25 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
       }
     }
   }
+
+  // 拖拽期间的 move / up 在 window 上收：移出浮卡范围也不丢事件
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      if (!floatDragRef.current) return
+      if (floatMovedRef.current) e.preventDefault()
+      onFloatMove(e.clientX, e.clientY)
+    }
+    const up = () => onFloatUp(false)
+    const cancel = () => onFloatUp(true)
+    window.addEventListener('pointermove', move, { passive: false })
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [clampFloatPos])
 
   // 首次挂载 / 项目数变化：定位到当前选中项目并铺一次位姿（不播动画）
   useLayoutEffect(() => {
@@ -495,12 +519,14 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
         ref={floatRef}
         className={`wb-fan__float${switching ? ' is-switching' : ''}${floatDragging ? ' is-dragging' : ''}`}
         style={{ left: floatPos.x, top: floatPos.y }}
-        title={floating?.name ? `${floating.name}（可拖动，位置会记住）` : '可拖动'}
+        role="button"
+        tabIndex={0}
+        aria-label={`聚焦项目「${floating?.name ?? ''}」的任务（也可拖动本卡换位）`}
+        title={floating?.name ? `点击聚焦「${floating.name}」任务；按住可拖动换位` : '点击聚焦项目任务；按住可拖动换位'}
         onPointerDown={onFloatDown}
-        onPointerMove={onFloatMove}
-        onPointerUp={onFloatUp}
-        onPointerCancel={onFloatUp}
-        onLostPointerCapture={onFloatUp}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusActiveProject() }
+        }}
       >
         <div className="wb-fan__float-head">
           <div>

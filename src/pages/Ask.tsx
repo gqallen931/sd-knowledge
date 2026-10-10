@@ -433,10 +433,10 @@ function AskEntryView({ entry, activeCite, cardRefs, onCite, onOpenCitation, onO
         </div>
       )}
 
-      {/* 生成失败：错误卡（不自动消失）+ 重试 + 纯检索兜底 */}
-      {mode === 'error' && entry.error && (
+      {/* 生成失败：错误卡（不自动消失）+ 重试 + 纯检索兜底；服务端带原因时如实展示 */}
+      {mode === 'error' && (entry.error || result?.message) && (
         <div className="ask-note ask-note--danger" role="alert">
-          <strong>生成失败。</strong>{entry.error}
+          <strong>生成失败。</strong>{entry.error || result?.message}
           <button className="text-button" onClick={onRetry}>重试</button>
         </div>
       )}

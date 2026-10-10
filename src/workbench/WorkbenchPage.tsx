@@ -129,7 +129,7 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
   const { model, filter, setFilter, selectedId, setSelectedId, act } = useWorkbenchContext()
   const {
     auth, ready, loading, error, setError, snapshot, groups, tasks,
-    notifications, reminders, stats, unread, login, register,
+    notifications, reminders, stats, unread,
   } = model
 
   const [tab, setTab] = useState<Tab>('all')
@@ -243,15 +243,12 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
     )
   }
 
-  if (auth && (!auth.authenticated || (auth.needsSetup && !ready))) {
+  if (auth && !auth.authenticated) {
     return (
       <main className="wb-main">
-        <AuthScreen
-          needsSetup={auth.needsSetup}
-          onLogin={login}
-          onRegister={register}
-          onSkip={onOpenKnowledge}
-        />
+        <div className="wb-auth">
+          <AuthScreen onAuthenticated={model.reload} onSkip={onOpenKnowledge} />
+        </div>
       </main>
     )
   }
@@ -502,6 +499,24 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
             </div>
           </div>
 
+          {filter.projectId && (
+            <div className="wb-filter-bar" role="status">
+              <span className="wb-filter-chip">
+                项目：{projects.find((p) => String(p.id) === String(filter.projectId))?.name || '未知项目'}
+                <button
+                  type="button"
+                  className="wb-filter-chip__clear"
+                  title="清除项目筛选"
+                  aria-label="清除项目筛选"
+                  onClick={() => setFilter({ ...filter, projectId: '' })}
+                >
+                  <IconClose />
+                </button>
+              </span>
+              <span className="wb-filter-bar__hint">仅显示该项目的任务，点 × 恢复全部</span>
+            </div>
+          )}
+
           <div className={`wb-kanban__body${listOnly ? ' wb-kanban__body--full' : ''}`}>
             <TaskGroups
               groups={groups}
@@ -520,7 +535,7 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
               <ProjectFan
                 projects={projects}
                 activeId={filter.projectId}
-                onPick={(projectId) => setFilter({ ...filter, projectId: String(filter.projectId) === String(projectId) ? '' : projectId })}
+                onPick={(projectId) => setFilter({ ...filter, projectId: String(projectId) })}
               />
             )}
           </div>

@@ -100,6 +100,28 @@
 .wb-auth-form input:focus { border-color: rgba(0, 220, 110, 0.4); }
 .wb-auth-skip { border: 0; background: none; color: var(--text-note); font-size: 11px; }
 .wb-auth-skip:hover { color: var(--wb-green-text); }
+.wb-auth-tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 18px; border-radius: 12px; background: var(--wb-card-bg-hover); }
+.wb-auth-tab { flex: 1; border: 0; background: none; color: var(--text-note); font-size: 12px; padding: 8px 6px; border-radius: 9px; cursor: pointer; }
+.wb-auth-tab:hover { color: var(--wb-text-1); }
+.wb-auth-tab--on { background: var(--wb-panel-bg); color: var(--wb-text-1); font-weight: 600; }
+.wb-auth-field { display: flex; flex-direction: column; gap: 6px; }
+.wb-auth-field > span { font-size: 10px; letter-spacing: 1.2px; color: var(--text-note); text-transform: uppercase; }
+.wb-auth-row { display: flex; gap: 8px; }
+.wb-auth-row input { flex: 1; min-width: 0; }
+.wb-auth-row button { white-space: nowrap; }
+.wb-auth-row button:disabled { opacity: .5; cursor: not-allowed; }
+.wb-auth-aux { display: flex; justify-content: flex-end; margin-top: -6px; }
+.wb-auth-link { border: 0; background: none; color: var(--wb-green-text); font-size: 11.5px; padding: 0; cursor: pointer; }
+.wb-auth-link:hover { text-decoration: underline; }
+.wb-auth-foot { display: flex; justify-content: center; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-note); }
+.wb-auth-notice { font-size: 11.5px; color: var(--wb-green-text); line-height: 1.6; }
+.wb-auth-modal { position: relative; width: min(430px, 92vw); animation: settings-enter .18s var(--ease); }
+.wb-auth-modal .wb-auth-card { width: 100%; }
+.wb-auth-modal__close {
+  position: absolute; top: 14px; right: 14px; z-index: 1; width: 30px; height: 30px;
+  display: grid; place-items: center; border-radius: 8px; color: var(--text-secondary); font-size: 22px; line-height: 1;
+}
+.wb-auth-modal__close:hover { background: var(--hover); color: var(--text); }
 .wb-error { font-size: 11.5px; color: var(--wb-red-text); }
 .wb-spinner {
   width: 22px; height: 22px; border-radius: 50%;
@@ -215,7 +237,11 @@
   font-size: 11px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
+button.wb-user__avatar { border: 0; padding: 0; cursor: pointer; }
+button.wb-user__avatar:hover { filter: brightness(1.08); }
 .wb-user__meta { flex: 1; min-width: 0; }
+.wb-user__trigger { display: block; max-width: 100%; border: 0; padding: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
+.wb-user__trigger:hover { color: var(--wb-green-text); }
 .wb-user__name { font-size: 13px; font-weight: 500; color: var(--wb-text-1); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-user__role { font-size: 11px; color: var(--text-note); line-height: 1.3; }
 .wb-user__expand {
@@ -402,6 +428,28 @@
 /* 看板主体：任务列表 + 3D 卡片扇 */
 .wb-kanban__body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: stretch; }
 .wb-kanban__body--full { grid-template-columns: minmax(0, 1fr); }
+
+/* ── 项目筛选指示条（点项目卡后出现，让过滤状态可见；× 恢复全部） ── */
+.wb-filter-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+.wb-filter-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.4;
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, transparent);
+  max-width: 100%;
+}
+.wb-filter-chip__clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; cursor: pointer; flex: none;
+}
+.wb-filter-chip__clear:hover { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.wb-filter-chip__clear svg { width: 11px; height: 11px; }
+.wb-filter-bar__hint { font-size: 11px; color: var(--text-note); }
 
 /* ── 任务分组 ── */
 .wb-groups { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
