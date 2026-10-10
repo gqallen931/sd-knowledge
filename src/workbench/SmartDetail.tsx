@@ -8,6 +8,7 @@ import {
   IconDots,
   IconEdit,
   IconLayers,
+  IconList,
   IconPlus,
   IconSearch,
   IconSpark,
@@ -248,6 +249,24 @@ export default function SmartDetail({
                     </select>
                   </span>
                 </div>
+
+                {groups.length > 0 && (
+                  <div className="wb-field">
+                    <span className="wb-field__label">所属分组</span>
+                    <span className="wb-field__value">
+                      <IconList />
+                      <select
+                        value={task.groupId}
+                        title="把任务移到其它分组"
+                        onChange={(event) => void onPatch(task.id, { groupId: Number(event.target.value) })}
+                      >
+                        {groups.map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                    </span>
+                  </div>
+                )}
 
                 <div className="wb-field">
                   <span className="wb-field__label">截止时间</span>

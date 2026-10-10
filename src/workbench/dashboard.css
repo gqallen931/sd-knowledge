@@ -462,6 +462,8 @@ button.wb-user__avatar:hover { filter: brightness(1.08); }
   padding: 11px 14px; text-align: left; transition: background 0.15s var(--wb-ease);
 }
 .wb-group__head:hover { background: var(--hover); }
+/* S2-04：拖拽悬停到分组头时的高亮（换组 drop 目标） */
+.wb-group__head--drop { background: var(--hover); box-shadow: inset 0 0 0 1.5px var(--wb-blue); }
 .wb-group__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .wb-group__dot--blue { background: var(--wb-blue); box-shadow: 0 0 8px rgba(76, 141, 255, 0.5); }
 .wb-group__dot--green { background: var(--wb-green); box-shadow: 0 0 8px rgba(0, 220, 110, 0.5); }
@@ -482,6 +484,9 @@ button.wb-user__avatar:hover { filter: brightness(1.08); }
 .wb-task:hover { background: var(--hover); }
 .wb-task--selected { background: var(--wb-green-soft); box-shadow: inset 2px 0 0 var(--wb-green); }
 .wb-task--selected:hover { background: var(--wb-green-soft); }
+/* S2-04：任务行可拖换组；拖动中的行半透明 */
+.wb-task[draggable='true'] { cursor: grab; }
+.wb-task--dragging { opacity: 0.45; }
 
 .wb-task__id {
   font-family: var(--wb-mono); font-size: 10.5px; color: var(--text-note);

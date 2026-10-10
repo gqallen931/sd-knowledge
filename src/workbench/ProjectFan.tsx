@@ -495,6 +495,7 @@ export default function ProjectFan({ projects, activeId, onPick }: Props) {
     <div
       ref={wrapRef}
       className="wb-fan"
+      data-drag-exclude
       aria-label="项目文档概览：滚轮或拖动切换，左右方向键也可切换"
       tabIndex={0}
     >

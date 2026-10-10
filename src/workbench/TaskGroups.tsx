@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { DragEvent } from 'react'
 import type { SDTask, SDTaskGroup } from '../types/global'
 import { IconChevronDown } from './icons'
 import { daysUntil, priorityMeta, statusMeta } from './motion'
@@ -11,6 +12,8 @@ interface Props {
   /** 页头的「新增任务」按钮把新任务行插到第一个分组里 */
   creating?: boolean
   onCreate?: (name: string) => Promise<void>
+  /** 拖拽任务行到分组头完成换组（S2-04）；缺省时行不可拖 */
+  onMoveTask?: (taskId: string, groupId: number) => Promise<void>
 }
 
 /** 分组圆点只有三种配色，与参照稿的 blue / green / violet 变体一一对应 */
@@ -39,11 +42,41 @@ function tail(task: SDTask) {
  * 任务分组列表：参照稿 `.wb-groups` / `.wb-group` / `.wb-task` 的 1:1 复刻。
  * 分组可收起（`.wb-group--closed` 让 chevron 转 -90°），任务行是行列表而非卡片。
  */
-export default function TaskGroups({ groups, tasks, selectedId, onSelect, creating = false, onCreate }: Props) {
+export default function TaskGroups({ groups, tasks, selectedId, onSelect, creating = false, onCreate, onMoveTask }: Props) {
   const [closed, setClosed] = useState<number[]>([])
   const [draft, setDraft] = useState('')
+  /** HTML5 DnD 的进行中状态：dragOver 只做视觉高亮，dragTaskRef 供 drop 时取任务 id */
+  const [dragOver, setDragOver] = useState<number | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const dragTaskRef = useRef<string | null>(null)
   const toggle = (groupId: number) =>
     setClosed((list) => (list.includes(groupId) ? list.filter((id) => id !== groupId) : [...list, groupId]))
+
+  /** 拖拽起点：卡片扇等自管指针拖拽的区域不参与 HTML5 DnD（data-drag-exclude 首行短路） */
+  const startDrag = (event: DragEvent, taskId: string) => {
+    if ((event.target as HTMLElement).closest('[data-drag-exclude]')) { event.preventDefault(); return }
+    dragTaskRef.current = taskId
+    setDraggingId(taskId)
+    event.dataTransfer.setData('text/plain', taskId)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
+  const endDrag = () => {
+    dragTaskRef.current = null
+    setDraggingId(null)
+    setDragOver(null)
+  }
+
+  const dropToGroup = (event: DragEvent, groupId: number) => {
+    event.preventDefault()
+    const taskId = dragTaskRef.current || event.dataTransfer.getData('text/plain')
+    setDragOver(null)
+    if (!taskId || !onMoveTask) return
+    const task = tasks.find((item) => item.id === taskId)
+    // 原地放下（同组）不发起请求，避免一次无意义的写 + 全量刷新
+    if (!task || task.groupId === groupId) return
+    void onMoveTask(taskId, groupId)
+  }
 
   const submit = async () => {
     const name = draft.trim()
@@ -70,9 +103,19 @@ export default function TaskGroups({ groups, tasks, selectedId, onSelect, creati
         return (
           <div key={group.id} className={`wb-group${isClosed ? ' wb-group--closed' : ''}`}>
             <button
-              className="wb-group__head"
+              className={`wb-group__head${dragOver === group.id ? ' wb-group__head--drop' : ''}`}
+              data-group-header={group.id}
               aria-expanded={!isClosed}
+              title={`拖动任务到这里移入「${group.name}」`}
               onClick={() => toggle(group.id)}
+              onDragOver={(event) => {
+                if (!onMoveTask || !dragTaskRef.current) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDragOver(group.id)
+              }}
+              onDragLeave={() => setDragOver((id) => (id === group.id ? null : id))}
+              onDrop={(event) => dropToGroup(event, group.id)}
             >
               <span className={`wb-group__dot ${dotClass(group.color)}`} />
               <span className="wb-group__name">{group.name}</span>
@@ -103,7 +146,10 @@ export default function TaskGroups({ groups, tasks, selectedId, onSelect, creati
                 return (
                   <div
                     key={task.id}
-                    className={`wb-task${selectedId === task.id ? ' wb-task--selected' : ''}`}
+                    className={`wb-task${selectedId === task.id ? ' wb-task--selected' : ''}${draggingId === task.id ? ' wb-task--dragging' : ''}`}
+                    draggable={Boolean(onMoveTask)}
+                    onDragStart={(event) => startDrag(event, task.id)}
+                    onDragEnd={endDrag}
                     onClick={() => onSelect(task.id)}
                     title={task.description || task.name}
                   >

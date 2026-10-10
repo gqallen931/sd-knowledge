@@ -526,6 +526,7 @@ export default function WorkbenchPage({ onOpenFile, onOpenKnowledge, onToggleSid
               selectedId={selectedId}
               onSelect={(id) => { setSelectedId(id); setCreating(false); setDetailOpen(true) }}
               creating={creating}
+              onMoveTask={(taskId, groupId) => run(() => window.sd.task.update(taskId, { groupId }))}
               onCreate={async (name) => {
                 const target = groups[0]
                 if (!target) return
