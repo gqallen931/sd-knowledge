@@ -59,10 +59,12 @@ export default function Settings({ modal = false, onClose }: SettingsProps) {
   const [pluginBusy, setPluginBusy] = useState('')
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
   const loadAll = async () => {
+    setLoadError('')
     try {
       const [s, sec] = await Promise.all([
         window.sd.settings.get(),
@@ -78,7 +80,10 @@ export default function Settings({ modal = false, onClose }: SettingsProps) {
         setApiKeys(keys)
         setAuditLogs(logs)
       }
-    } catch (e) { console.error('Settings load error:', e) }
+    } catch (e) {
+      console.error('Settings load error:', e)
+      setLoadError('设置数据加载失败，部分面板可能不完整，请重试')
+    }
     await loadPlugins()
   }
 
@@ -149,6 +154,12 @@ export default function Settings({ modal = false, onClose }: SettingsProps) {
         <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text)', marginBottom: modal ? 0 : '20px' }}>系统设置</h1>
         {modal && <button className="settings-modal__close" onClick={onClose} aria-label="关闭设置">×</button>}
       </div>
+      {loadError && (
+        <div className="error-banner" role="alert">
+          {loadError}
+          <button onClick={() => void loadAll()}>重试</button>
+        </div>
+      )}
 
       {feedback && <div className="notice" role="status">{feedback}</div>}
       {/* Tab bar */}

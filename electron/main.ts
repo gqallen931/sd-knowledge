@@ -317,6 +317,17 @@ function registerIPC() {
     return await searchService.semanticSearch(query, options)
   })
 
+  // 混合检索（RRF）：与保存检索的结果指纹同一口径，检索中心第三模式共用
+  handle('search:hybrid', async (_, query: string, options: any) => {
+    return await searchService.hybridSearch(query, options)
+  })
+
+  // 保存的检索（S2-07）：列表 / 保存（立即跑一次记指纹）/ 删除 / 手动重跑
+  handle('search:savedList', async () => searchService.listSavedSearches())
+  handle('search:savedCreate', async (_, input: any) => await searchService.saveSearch(input || {}))
+  handle('search:savedRemove', async (_, id: number) => searchService.removeSavedSearch(Number(id)))
+  handle('search:savedRerun', async (_, id: number) => await searchService.rerunSavedSearch(Number(id)))
+
   handle('graph:nodes', async (_, filters: any) => {
     return await graphBuilder.getNodes(filters)
   })

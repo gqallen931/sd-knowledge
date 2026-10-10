@@ -305,6 +305,15 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: 0.2px; line-height: 1.25
 .empty-state { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-note); font-size: 12px; }
 .empty-symbol { font-size: 34px; color: var(--primary); opacity: 0.6; }
 
+/* S2-14 全站三态组件：同一结构承载 loading / empty / error，逐页复用保证观感一致 */
+.wb-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px 20px; text-align: center; color: var(--text-note); font-size: 12px; }
+.wb-state__spin { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--card-border); border-top-color: var(--primary); animation: wb-state-spin 0.8s linear infinite; }
+.wb-state__symbol { font-size: 28px; color: var(--primary); opacity: 0.6; line-height: 1; }
+.wb-state--error .wb-state__symbol { color: var(--danger); opacity: 0.85; }
+.wb-state__title { color: var(--text); font-size: 13px; font-weight: 600; }
+.wb-state__hint { max-width: 360px; line-height: 1.7; }
+@keyframes wb-state-spin { to { transform: rotate(360deg); } }
+
 .recent-row { width: 100%; display: flex; align-items: center; text-align: left; padding: 11px 0; border: 0; border-bottom: 1px solid var(--card-border); background: none; gap: 13px; color: var(--text-dim); }
 .recent-row:last-child { border-bottom: 0; }
 .recent-row:hover strong { color: var(--primary); }

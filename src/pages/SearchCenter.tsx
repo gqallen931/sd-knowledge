@@ -9,6 +9,23 @@ function matchModeLabel(mode?: string | null): string {
   return ''
 }
 
+type SearchMode = 'fulltext' | 'semantic' | 'hybrid'
+
+/** 三种检索模式：混合（RRF）与保存检索的结果指纹同一口径 */
+const MODES: Array<{ key: SearchMode; label: string; placeholder: string }> = [
+  { key: 'fulltext', label: '全文搜索', placeholder: '输入关键词搜索文档内容...' },
+  { key: 'semantic', label: '语义搜索', placeholder: '输入自然语言描述，语义匹配相关文档...' },
+  { key: 'hybrid', label: '混合检索', placeholder: '关键词 + 语义混合召回，RRF 融合排序...' },
+]
+
+/** 库里的 CURRENT_TIMESTAMP 是 UTC 无时区标记，补 Z 再转本地时间显示 */
+function fmtRunAt(value?: string | null): string {
+  if (!value) return '尚未运行'
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T')
+  const date = new Date(normalized.endsWith('Z') ? normalized : `${normalized}Z`)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+}
+
 /**
  * 位置锚点翻成人话：page→第 N 页 / slide→第 N 张幻灯片 / chapter→第 N 章 /
  * sheet→第 N 个工作表 / time→mm:ss；给不出锚点时不显示（不编造「第 1 页」）。
@@ -52,23 +69,41 @@ export default function SearchCenter() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [meta, setMeta] = useState<{ total: number; truncated: boolean; reason?: string; approx: boolean } | null>(null)
-  const [searchMode, setSearchMode] = useState<'fulltext' | 'semantic'>('fulltext')
-  const [resultMode, setResultMode] = useState<'fulltext' | 'semantic'>('fulltext')
+  const [searchMode, setSearchMode] = useState<SearchMode>('fulltext')
+  const [resultMode, setResultMode] = useState<SearchMode>('fulltext')
   const [searching, setSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
+  // 保存的检索（S2-07）
+  const [savedList, setSavedList] = useState<any[]>([])
+  const [savedOpen, setSavedOpen] = useState(false)
+  const [savedError, setSavedError] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
 
-  const handleSearch = async () => {
-    if (!query.trim()) return
+  const loadSaved = async () => {
+    setSavedError('')
+    try { setSavedList(await window.sd.search.savedList()) }
+    catch (e: any) { setSavedError(e?.message || '保存的检索列表加载失败') }
+  }
+
+  useEffect(() => { void loadSaved() }, [])
+
+  const performSearch = async (q: string, mode: SearchMode) => {
+    if (!q.trim()) return
     setError('')
     setSearching(true)
     setHasSearched(true)
     try {
-      const result = searchMode === 'semantic'
-        ? await window.sd.search.semantic(query, { limit: 20 })
-        : await window.sd.search.fulltext(query, { limit: 20 })
+      const call = mode === 'semantic'
+        ? window.sd.search.semantic
+        : mode === 'hybrid'
+          ? window.sd.search.hybrid
+          : window.sd.search.fulltext
+      const result = await call(q, { limit: 20 })
       const items = Array.isArray(result) ? result : (result?.items ?? [])
       setResults(items)
-      setResultMode(searchMode)
+      setResultMode(mode)
       setMeta(Array.isArray(result)
         ? { total: items.length, truncated: false, approx: false }
         : {
@@ -84,6 +119,52 @@ export default function SearchCenter() {
       setMeta(null)
     } finally {
       setSearching(false)
+    }
+  }
+
+  const handleSearch = () => void performSearch(query, searchMode)
+
+  /** 把当前检索保存下来：名称必填由按钮禁用态拦，后端还有一道兜底 */
+  const saveCurrent = async () => {
+    const name = saveName.trim()
+    if (!name || !query.trim() || saveBusy) return
+    setSaveBusy(true)
+    setSaveMsg('')
+    setSavedError('')
+    try {
+      await window.sd.search.savedCreate({ name, query: query.trim(), notify_on_change: true })
+      setSaveName('')
+      setSaveMsg(`已保存为「${name}」，结果集变化时会提醒你`)
+      await loadSaved()
+    } catch (e: any) {
+      setSaveMsg('')
+      setSavedError(e?.message || '保存失败，请重试')
+    } finally {
+      setSaveBusy(false)
+    }
+  }
+
+  /** 运行保存的检索：按混合口径展示结果，同时重跑一次刷新指纹 */
+  const runSaved = async (row: any) => {
+    if (searching) return
+    setQuery(String(row.query || ''))
+    setSearchMode('hybrid')
+    setSaveMsg('')
+    await performSearch(String(row.query || ''), 'hybrid')
+    try {
+      const fresh = await window.sd.search.savedRerun(row.id)
+      if (fresh) setSavedList((prev) => prev.map((x) => (x.id === row.id ? fresh : x)))
+    } catch { /* 指纹刷新失败不影响结果展示 */ }
+  }
+
+  const removeSaved = async (row: any) => {
+    if (!window.confirm(`删除保存的检索「${row.name}」？删除后将不再跟踪其结果变化。`)) return
+    try {
+      await window.sd.search.savedRemove(row.id)
+      setSavedList((prev) => prev.filter((x) => x.id !== row.id))
+      setSaveMsg('')
+    } catch (e: any) {
+      setSavedError(e?.message || '删除失败，请重试')
     }
   }
 
@@ -112,24 +193,18 @@ export default function SearchCenter() {
 
         {/* Mode Toggle */}
         <div className="inline-flex rounded-lg p-1 mb-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
-          <button
-            onClick={() => setSearchMode('fulltext')}
-            className="px-4 py-1.5 rounded-md text-sm transition-all"
-            style={{
-              background: searchMode === 'fulltext' ? 'var(--primary)' : 'transparent',
-              color: searchMode === 'fulltext' ? 'white' : 'var(--text-secondary)'
-            }}>
-            全文搜索
-          </button>
-          <button
-            onClick={() => setSearchMode('semantic')}
-            className="px-4 py-1.5 rounded-md text-sm transition-all"
-            style={{
-              background: searchMode === 'semantic' ? 'var(--primary)' : 'transparent',
-              color: searchMode === 'semantic' ? 'white' : 'var(--text-secondary)'
-            }}>
-            语义搜索
-          </button>
+          {MODES.map((mode) => (
+            <button
+              key={mode.key}
+              onClick={() => setSearchMode(mode.key)}
+              className="px-4 py-1.5 rounded-md text-sm transition-all"
+              style={{
+                background: searchMode === mode.key ? 'var(--primary)' : 'transparent',
+                color: searchMode === mode.key ? 'white' : 'var(--text-secondary)',
+              }}>
+              {mode.label}
+            </button>
+          ))}
         </div>
 
         {/* Search Bar */}
@@ -139,7 +214,7 @@ export default function SearchCenter() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder={searchMode === 'fulltext' ? '输入关键词搜索文档内容...' : '输入自然语言描述，语义匹配相关文档...'}
+            placeholder={MODES.find((m) => m.key === searchMode)?.placeholder}
             className="flex-1 rounded-lg px-4 py-3 text-sm outline-none"
             style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
             onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
@@ -147,11 +222,90 @@ export default function SearchCenter() {
           />
           <button
             onClick={handleSearch}
-            disabled={searching}
+            disabled={searching || !query.trim()}
             className="px-6 py-3 rounded-lg text-sm text-white transition-all"
-            style={{ background: 'var(--primary)', opacity: searching ? 0.6 : 1 }}>
+            style={{ background: 'var(--primary)', opacity: searching || !query.trim() ? 0.6 : 1, cursor: searching || !query.trim() ? 'not-allowed' : 'pointer' }}>
             {searching ? '搜索中...' : '搜索'}
           </button>
+        </div>
+
+        {/* 保存的检索（S2-07）：保存当前检索 + 列表 + 变更提醒 */}
+        <div className="rounded-xl p-4 mt-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>保存的检索</div>
+            <button
+              onClick={() => setSavedOpen((o) => !o)}
+              className="text-xs px-3 py-1 rounded-md"
+              style={{ background: 'var(--bg)', border: '1px solid var(--card-border)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {savedOpen ? '收起' : `展开（${savedList.length}）`}
+            </button>
+          </div>
+
+          {savedOpen && (
+            <>
+              {hasSearched && query.trim() ? (
+                <div className="flex gap-2 mb-2">
+                  <input
+                    value={saveName}
+                    onChange={(e) => { setSaveName(e.target.value); setSaveMsg('') }}
+                    onKeyDown={(e) => e.key === 'Enter' && saveCurrent()}
+                    maxLength={50}
+                    placeholder="给这条检索起个名字，方便下次直接运行..."
+                    className="flex-1 rounded-md px-3 py-2 text-xs outline-none"
+                    style={{ background: 'var(--bg)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                  />
+                  <button
+                    onClick={saveCurrent}
+                    disabled={saveBusy || !saveName.trim()}
+                    className="px-4 py-2 rounded-md text-xs text-white"
+                    style={{ background: 'var(--primary)', opacity: saveBusy || !saveName.trim() ? 0.6 : 1, cursor: saveBusy || !saveName.trim() ? 'not-allowed' : 'pointer' }}>
+                    {saveBusy ? '保存中...' : '保存当前检索'}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs mb-2" style={{ color: 'var(--text-note)' }}>
+                  执行一次检索后可保存下来；库里文档变化导致结果集变化时会收到提醒。
+                </div>
+              )}
+
+              {saveMsg && <div className="text-xs mb-2" style={{ color: 'var(--primary)' }}>{saveMsg}</div>}
+              {savedError && <div className="text-xs mb-2" style={{ color: 'var(--danger)' }} role="alert">{savedError}</div>}
+
+              {savedList.length === 0 ? (
+                <div className="text-xs" style={{ color: 'var(--text-note)' }}>还没有保存的检索。</div>
+              ) : (
+                savedList.map((row) => (
+                  <div key={row.id} className="flex items-center gap-3 py-2" style={{ borderTop: '1px solid var(--card-border)' }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm truncate" style={{ color: 'var(--text)' }}>
+                        {row.name}
+                        {row.notify_on_change ? (
+                          <span className="ml-2 text-xs" style={{ fontSize: '10px', color: 'var(--primary)' }} title="结果集变化时会收到提醒">变更提醒</span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs truncate" style={{ color: 'var(--text-note)' }} title={row.query}>
+                        {row.query} · 约 {row.last_result_count ?? '—'} 条 · {fmtRunAt(row.last_run_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => void runSaved(row)}
+                      disabled={searching}
+                      className="text-xs px-3 py-1 rounded-md"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--card-border)', color: 'var(--primary)', cursor: searching ? 'not-allowed' : 'pointer', opacity: searching ? 0.5 : 1 }}>
+                      运行
+                    </button>
+                    <button
+                      onClick={() => void removeSaved(row)}
+                      disabled={searching}
+                      className="text-xs px-3 py-1 rounded-md"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--card-border)', color: 'var(--text-secondary)', cursor: searching ? 'not-allowed' : 'pointer' }}>
+                      删除
+                    </button>
+                  </div>
+                ))
+              )}
+            </>
+          )}
         </div>
       </div>
 

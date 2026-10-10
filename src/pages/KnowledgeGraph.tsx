@@ -28,6 +28,14 @@ function readGraphTokens(): GraphTokens {
   return tokens
 }
 
+/** 库时间（UTC 无时区标记）转本地展示；解析失败按原样展示 */
+function fmtTimeSuffix(value?: string | null): string {
+  if (!value) return ''
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T')
+  const date = new Date(normalized.endsWith('Z') ? normalized : `${normalized}Z`)
+  return Number.isNaN(date.getTime()) ? ` · ${value}` : ` · ${date.toLocaleString('zh-CN', { hour12: false })}`
+}
+
 export default function KnowledgeGraph() {
   const [nodes, setNodes] = useState<any[]>([])
   const [edges, setEdges] = useState<any[]>([])
@@ -37,6 +45,8 @@ export default function KnowledgeGraph() {
   // L0：空间折叠总览；L1：单个空间内部的文档/实体/标签图。
   const [level, setLevel] = useState<'global' | 'space'>('global')
   const [spaceId, setSpaceId] = useState<number | null>(null)
+  /** 图谱加载失败提示：失败与「真的没数据」是两回事，不能共用空态文案 */
+  const [loadError, setLoadError] = useState('')
   /** L1 落在「未归入空间」节点上：此时没有 space_id，范围改由 `unassigned` 表达 */
   const [spaceUnassigned, setSpaceUnassigned] = useState(false)
   const [spaceLabel, setSpaceLabel] = useState('')
@@ -83,6 +93,23 @@ export default function KnowledgeGraph() {
   const [suggestLoading, setSuggestLoading] = useState(false)
   const [suggestResult, setSuggestResult] = useState<any>(null)
   const [suggestIgnored, setSuggestIgnored] = useState<string[]>([])
+  // 实体别名（S2-08）：等义名共享给检索与消歧
+  const [aliases, setAliases] = useState<any[]>([])
+  const [aliasDraft, setAliasDraft] = useState('')
+  const [aliasBusy, setAliasBusy] = useState(false)
+  // 合并历史（S2-08）：可在消歧面板回看
+  const [mergeHistory, setMergeHistory] = useState<any[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+
+  /** 选中实体时拉取别名列表；非实体节点清空 */
+  useEffect(() => {
+    if (!selectedNode || selectedNode.node_type !== 'entity') { setAliases([]); setAliasDraft(''); return }
+    let alive = true
+    window.sd.graph.listAliases(selectedNode.id)
+      .then((list: any[]) => { if (alive) setAliases(list ?? []) })
+      .catch(() => { if (alive) setAliases([]) })
+    return () => { alive = false }
+  }, [selectedNode?.id, selectedNode?.node_type])
 
   useEffect(() => { loadGraph() }, [level, spaceId, spaceUnassigned, folderPath])
 
@@ -93,6 +120,7 @@ export default function KnowledgeGraph() {
    * 旧版一次性拉全库（且静默截断到 500/200/100），图谱越大越像一张糊掉的网。
    */
   const loadGraph = async () => {
+    setLoadError('')
     try {
       const s = await window.sd.graph.stats()
       setStats(s)
@@ -137,6 +165,7 @@ export default function KnowledgeGraph() {
       setScopeNote(notes.length ? `已截断：${notes.join(' · ')}` : '')
     } catch (e: any) {
       console.error('Graph load error:', e?.message || e)
+      setLoadError('图谱数据加载失败，请稍后点击右下角「刷新」重试')
     }
   }
 
@@ -529,6 +558,41 @@ export default function KnowledgeGraph() {
     } : prev)
   }
 
+  /** 「不再提示」持久化：写入忽略记忆，后端扫描时跳过这组（本地同时隐藏） */
+  const ignoreSuggestion = async (s: any) => {
+    try {
+      await window.sd.graph.ignoreMergeSuggestion(s.source.name, s.target.name)
+      setSuggestIgnored((p) => [...p, pairKey(s)])
+    } catch (e: any) { setEditError(e.message) }
+  }
+
+  const loadMergeHistory = async () => {
+    try { setMergeHistory(await window.sd.graph.listMergeHistory(20)) }
+    catch (e: any) { setEditError(e.message) }
+  }
+
+  // ===== 实体别名 =====
+  const addAlias = async () => {
+    if (!selectedNode || selectedNode.node_type !== 'entity' || aliasBusy) return
+    const alias = aliasDraft.trim()
+    if (!alias) return
+    setAliasBusy(true)
+    try {
+      await window.sd.graph.addAlias(selectedNode.id, alias)
+      setAliasDraft('')
+      setAliases(await window.sd.graph.listAliases(selectedNode.id))
+    } catch (e: any) { setEditError(e.message) } finally { setAliasBusy(false) }
+  }
+
+  const removeAlias = async (id: number) => {
+    if (!selectedNode || aliasBusy) return
+    setAliasBusy(true)
+    try {
+      await window.sd.graph.removeAlias(id)
+      setAliases(await window.sd.graph.listAliases(selectedNode.id))
+    } catch (e: any) { setEditError(e.message) } finally { setAliasBusy(false) }
+  }
+
   const chipBtn = (color: string) => ({
     border: '1px solid var(--card-border)', background: 'transparent', color,
     cursor: 'pointer', borderRadius: '4px', fontSize: '11px', padding: '2px 8px',
@@ -568,12 +632,25 @@ export default function KnowledgeGraph() {
         {filteredNodes.length === 0 ? (
           <div className="flex items-center justify-center h-full relative z-10">
             <div className="text-center">
-              <div style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '8px' }}>暂无图谱数据</div>
-              <div style={{ fontSize: '13px', color: 'var(--text-dim)' }}>
-                {level === 'global'
-                  ? '导入文件后，系统自动构建知识图谱'
-                  : '当前范围下没有可展示的节点，试试返回上一层或放宽左侧筛选'}
-              </div>
+              {loadError ? (
+                <>
+                  <div style={{ fontSize: '18px', color: 'var(--danger)', marginBottom: '8px' }}>图谱加载失败</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-dim)' }}>{loadError}</div>
+                  <button onClick={loadGraph}
+                    style={{ marginTop: '12px', border: '1px solid var(--card-border)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', borderRadius: 6, fontSize: '12px', padding: '6px 16px' }}>
+                    重试
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '8px' }}>暂无图谱数据</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-dim)' }}>
+                    {level === 'global'
+                      ? '导入文件后，系统自动构建知识图谱'
+                      : '当前范围下没有可展示的节点，试试返回上一层或放宽左侧筛选'}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -844,6 +921,36 @@ export default function KnowledgeGraph() {
             </div>
           )}
 
+          {/* 别名（S2-08）：等义名共享给检索与消歧；删除别名不影响本体 */}
+          {selectedNode.node_type === 'entity' && (
+            <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '12px', marginTop: '8px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '6px' }}>别名 · {aliases.length}</div>
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                <input value={aliasDraft} onChange={(e) => setAliasDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addAlias() }}
+                  maxLength={200} placeholder="添加常出现的别称…" disabled={aliasBusy}
+                  style={{ flex: 1, minWidth: 0, padding: '6px 8px', fontSize: '12px', borderRadius: 6, border: '1px solid var(--card-border)', background: 'var(--bg)', color: 'var(--text)' }} />
+                <button disabled={aliasBusy || !aliasDraft.trim()} onClick={addAlias}
+                  style={{
+                    border: '1px solid var(--card-border)', background: 'transparent',
+                    cursor: aliasBusy || !aliasDraft.trim() ? 'not-allowed' : 'pointer',
+                    borderRadius: 4, fontSize: '11px', padding: '4px 10px',
+                    color: aliasBusy || !aliasDraft.trim() ? 'var(--text-dim)' : 'var(--primary)',
+                  }}>添加</button>
+              </div>
+              {aliases.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>暂无别名。补充别称可减少实体重复建项。</div>
+              ) : aliases.map((a: any) => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0', fontSize: '12px' }}>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{a.alias}</span>
+                  <span style={{ color: 'var(--text-dim)', fontSize: '10px', flexShrink: 0 }}>{a.source === 'merge' ? '合并产生' : '手动'}</span>
+                  <button title="删除别名" disabled={aliasBusy} onClick={() => removeAlias(a.id)}
+                    style={{ border: 'none', background: 'transparent', color: 'var(--text-dim)', cursor: 'pointer', padding: '0 2px', fontSize: '13px', lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* 关系列表（可删除手动/自动关系；标签关联来自 document_tags，不可在此删） */}
           <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '12px', marginTop: '8px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '6px' }}>关联关系 · {nodeEdges.length}</div>
@@ -1056,8 +1163,8 @@ export default function KnowledgeGraph() {
                         style={chipBtn('var(--accent, #a06cd5)')}>合并</button>
                       <button disabled={editBusy} onClick={() => swapSuggestion(s)}
                         style={chipBtn('var(--text-secondary)')}>反向</button>
-                      <button disabled={editBusy} onClick={() => setSuggestIgnored(p => [...p, pairKey(s)])}
-                        style={chipBtn('var(--text-dim)')}>忽略</button>
+                      <button disabled={editBusy} onClick={() => ignoreSuggestion(s)} title="这两个名称不是同一个实体，记下来以后不再提示"
+                        style={chipBtn('var(--text-dim)')}>不再提示</button>
                     </div>
                   </div>
                 )
@@ -1065,6 +1172,28 @@ export default function KnowledgeGraph() {
               <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px', lineHeight: 1.6 }}>
                 规则层只能提示、不能判定：「苹果公司」与「苹果手机」这类同形异义需人工确认。
                 合并前请核对右侧目标实体是否为规范名。
+              </div>
+
+              {/* 合并历史（S2-08）：每次合并落库可回看，幸存者后来被并走/删除时名字留空 */}
+              <div style={{ marginTop: '10px', borderTop: '1px solid var(--card-border)', paddingTop: '8px' }}>
+                <button
+                  onClick={() => { const next = !showHistory; setShowHistory(next); if (next) loadMergeHistory() }}
+                  style={chipBtn('var(--text-secondary)')}>
+                  {showHistory ? '收起合并历史' : '查看合并历史'}
+                </button>
+                {showHistory && (
+                  <div style={{ marginTop: '6px' }}>
+                    {mergeHistory.length === 0 ? (
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>还没有合并记录。</div>
+                    ) : mergeHistory.map((h: any) => (
+                      <div key={h.id} style={{ fontSize: '11px', color: 'var(--text-dim)', padding: '3px 0', lineHeight: 1.6 }}>
+                        「{h.merged_name}」并入「{h.survivor_name || '（已删除）'}」
+                        {h.edges_relocated ? ` · 转移 ${h.edges_relocated} 条关系` : ''}
+                        {fmtTimeSuffix(h.created_at)}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}

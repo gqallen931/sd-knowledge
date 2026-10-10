@@ -34,6 +34,7 @@ export default function Resources() {
   const [rankDate, setRankDate] = useState('')
   const [rankCategories, setRankCategories] = useState<Array<{ category: string; label: string; items: any[] }>>([])
   const [rankLoading, setRankLoading] = useState(false)
+  const [rankError, setRankError] = useState('')
   const [rankTab, setRankTab] = useState<string>('')
 
   const load = async (category: string, search: string) => {
@@ -49,22 +50,24 @@ export default function Resources() {
 
   const loadRank = async (category?: string) => {
     setRankLoading(true)
+    setRankError('')
     try {
       const result = await window.sd.githubRank.daily({ category })
       setRankDate(result.date)
       setRankCategories(result.categories)
       if (!rankTab && result.categories.length) setRankTab(result.categories[0].category)
-    } catch (e: any) { console.error('GitHub 榜单加载失败:', e) }
+    } catch (e: any) { setRankError(e?.message || '网络异常，请稍后重试') }
     finally { setRankLoading(false) }
   }
 
   const refreshRank = async () => {
     setRankLoading(true)
+    setRankError('')
     try {
       const result = await window.sd.githubRank.refresh({ category: rankTab || undefined })
       setRankDate(result.date)
       setRankCategories(result.categories)
-    } catch (e: any) { console.error('GitHub 榜单刷新失败:', e) }
+    } catch (e: any) { setRankError(e?.message || '刷新失败，请稍后重试') }
     finally { setRankLoading(false) }
   }
 
@@ -106,6 +109,7 @@ export default function Resources() {
             <button className="button secondary" onClick={refreshRank} disabled={rankLoading}>↻ 刷新</button>
           </div>
         </div>
+        {rankError && <div className="error-banner" role="alert">榜单加载失败：{rankError}<button onClick={() => void loadRank(rankTab || undefined)}>重试</button></div>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
           {rankCategories.map(c => (
             <button

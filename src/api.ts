@@ -72,7 +72,7 @@ if (!window.sd) {
     queue: group('queue', ['status']),
     project: group('project', ['list', 'create', 'update', 'remove', 'assign', 'assignMany']),
     graph: group('graph', ['nodes', 'edges', 'entity', 'stats', 'addRelationship', 'deleteRelationship', 'mergeEntities', 'mergeEntitiesBatch', 'renameEntity', 'batchRenameEntities', 'searchNodes', 'searchEntities', 'suggestEntityMerges', 'overview', 'bridges', 'entities', 'listAliases', 'addAlias', 'removeAlias', 'listMergeHistory', 'ignoreMergeSuggestion', 'listIgnoredMergePairs']),
-    search: group('search', ['fulltext', 'semantic']),
+    search: group('search', ['fulltext', 'semantic', 'hybrid', 'savedList', 'savedCreate', 'savedRemove', 'savedRerun']),
     settings: group('settings', ['get', 'update']),
     security: { ...group('security', ['status', 'setup', 'verify']), apiKeys: group('security.apiKeys', ['list', 'create', 'revoke']) },
     audit: group('audit', ['list', 'retentionGet', 'retentionSet', 'prune']),

@@ -14,6 +14,11 @@ const api = {
   search: {
     fulltext: (query: string, filters?: any) => ipcRenderer.invoke('search:fulltext', query, filters),
     semantic: (query: string, options?: any) => ipcRenderer.invoke('search:semantic', query, options),
+    hybrid: (query: string, options?: any) => ipcRenderer.invoke('search:hybrid', query, options),
+    savedList: () => ipcRenderer.invoke('search:savedList'),
+    savedCreate: (input: { name: string; query: string; notify_on_change?: boolean }) => ipcRenderer.invoke('search:savedCreate', input),
+    savedRemove: (id: number) => ipcRenderer.invoke('search:savedRemove', id),
+    savedRerun: (id: number) => ipcRenderer.invoke('search:savedRerun', id),
   },
   graph: {
     nodes: (filters?: any) => ipcRenderer.invoke('graph:nodes', filters),

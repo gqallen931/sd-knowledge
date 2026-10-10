@@ -666,6 +666,13 @@ export interface SDAPI extends SDWorkbenchApi {
   search: {
     fulltext: (query: string, filters?: any) => Promise<SDResultSet<any>>
     semantic: (query: string, options?: any) => Promise<SDResultSet<any>>
+    /** 混合检索（RRF）：与保存检索的指纹同一口径 */
+    hybrid: (query: string, options?: any) => Promise<SDResultSet<any>>
+    /** S2-07 保存的检索 */
+    savedList: () => Promise<any[]>
+    savedCreate: (input: { name: string; query: string; notify_on_change?: boolean }) => Promise<any>
+    savedRemove: (id: number) => Promise<boolean>
+    savedRerun: (id: number) => Promise<any>
   }
   graph: {
     nodes: (filters?: any) => Promise<SDResultSet<any>>

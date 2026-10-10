@@ -38,7 +38,7 @@ export default function Dashboard() {
   const axisText = tokens.axisText
   const load = async () => {
     try { const [s, r] = await Promise.all([window.sd.dashboard.stats(), window.sd.dashboard.recent()]); setStats(s); setRecent(r); setError('') }
-    catch (e: any) { setError(e.message) }
+    catch (e: any) { console.error('Dashboard load error:', e); setError('无法连接本地服务，请确认软件正在运行后重试') }
   }
   useEffect(() => {
     load()
