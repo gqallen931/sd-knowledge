@@ -72,8 +72,10 @@ export async function createRuntime(dataDir: string) {
   const answer = new AnswerService(search, llmService)
   // 开源资源汇：卡片式展示收集的开源模型/技能/工具（表空时自动灌入种子数据）
   const resources = new ResourceService(db)
-  // GitHub 每日榜单：缓存每日各领域 star 前 15 项目
+  // GitHub 每日榜单：缓存每日各领域 star 前 15 项目；每天 08:00 定时刷新 + 启动补拉当天缺失数据
   const githubRank = new GithubRankService(db)
+  githubRank.scheduleDaily()
+  githubRank.catchUp()
   const camera = new CameraService()
 
   // 断点续传：恢复上次异常退出时中断或仍在排队的解析任务（按持久化的优先级还原出队顺序）

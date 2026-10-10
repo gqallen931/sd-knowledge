@@ -100,7 +100,7 @@ export default function Resources() {
       {/* GitHub 每日榜单 */}
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-heading">
-          <div><h2>GitHub 每日榜单</h2><p>各领域 star 前 15 的开源项目{rankDate ? ` · ${rankDate}` : ''}</p></div>
+          <div><h2>GitHub 每日榜单</h2><p>各领域 star 前 15 的开源项目 · 每日 08:00 自动更新{rankDate ? ` · 数据日期 ${rankDate}` : ''}</p></div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {rankLoading && <span className="pill">加载中…</span>}
             <button className="button secondary" onClick={refreshRank} disabled={rankLoading}>↻ 刷新</button>

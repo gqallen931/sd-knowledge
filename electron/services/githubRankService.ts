@@ -5,6 +5,9 @@ import DatabaseService from './database'
  *
  * 数据来自 GitHub Search API，按 stargazers_count 排序，每天缓存一份快照到本地表。
  * 无网络或 API 失败时返回上次缓存，绝不阻塞页面。
+ *
+ * 自动更新（S2 扩展）：应用运行期间每天 08:00 定时刷新全部领域；
+ * 启动时若当天还没有快照，延迟 10s 后台补拉一次——应用没开的日子不刷，下次启动自动补上。
  */
 
 export interface GithubRankItem {
@@ -37,11 +40,40 @@ const CATEGORIES: GithubRankCategory[] = [
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export class GithubRankService {
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null
+
   constructor(private db: DatabaseService) {}
+
+  /** 启动每日定时刷新：每天 hour 点整拉取全部领域榜单（应用运行期间生效） */
+  scheduleDaily(hour = 8) {
+    if (this.refreshTimer) return
+    const msUntilNextRun = () => {
+      const now = new Date()
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 0, 0, 0)
+      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+      return next.getTime() - now.getTime()
+    }
+    const tick = async () => {
+      try { await this.refreshNow() } catch (e) { console.error('[github-rank] 每日定时刷新失败:', e) }
+      this.refreshTimer = setTimeout(tick, DAY_MS)
+      ;(this.refreshTimer as any)?.unref?.()
+    }
+    this.refreshTimer = setTimeout(tick, msUntilNextRun())
+    ;(this.refreshTimer as any)?.unref?.()
+  }
+
+  /** 启动补拉：当天还没有快照时，延迟后台拉一次（避免拖慢启动） */
+  catchUp(delayMs = 10_000) {
+    const today = localDate()
+    const row = this.db.prepare('SELECT COUNT(*) as n FROM github_rank_snapshots WHERE snapshot_date = ?').get(today) as any
+    if (row?.n > 0) return
+    const t = setTimeout(() => { this.refresh(today).catch(() => {}) }, delayMs)
+    ;(t as any)?.unref?.()
+  }
 
   /** 获取今日榜单：优先读缓存，过期或缺失则后台刷新 */
   async getDailyRank(category?: string): Promise<{ date: string; categories: Array<{ category: string; label: string; items: GithubRankItem[] }> }> {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDate()
     const cached = this.readSnapshot(today, category)
     if (cached.length > 0) {
       // 后台异步刷新（不阻塞返回）
@@ -56,7 +88,7 @@ export class GithubRankService {
 
   /** 强制刷新（手动触发） */
   async refreshNow(category?: string): Promise<{ date: string; categories: Array<{ category: string; label: string; items: GithubRankItem[] }> }> {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDate()
     await this.refresh(today, category)
     const items = this.readSnapshot(today, category)
     return { date: today, categories: this.groupByCategory(items) }
@@ -88,9 +120,10 @@ export class GithubRankService {
 
   /** 缓存超过 1 天则刷新 */
   private async refreshIfStale(today: string) {
+    // created_at 是 SQLite CURRENT_TIMESTAMP（UTC 无时区标记），需补 Z 按 UTC 解析，否则时区偏差会提前触发
     const row = this.db.prepare('SELECT MAX(created_at) as latest FROM github_rank_snapshots WHERE snapshot_date = ?').get(today) as any
     if (!row?.latest) return
-    const age = Date.now() - new Date(row.latest).getTime()
+    const age = Date.now() - new Date(String(row.latest).replace(' ', 'T') + 'Z').getTime()
     if (age > DAY_MS) await this.refresh(today).catch(() => {})
   }
 
@@ -120,6 +153,12 @@ export class GithubRankService {
       }
     })
   }
+}
+
+/** 本地日期 YYYY-MM-DD：榜单按用户本地「一天」为周期（toISOString 是 UTC，早 8 点前日期会错位） */
+function localDate(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 /** 调 GitHub Search API 取 star 前 N 的项目 */
