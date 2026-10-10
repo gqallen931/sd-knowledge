@@ -27,6 +27,8 @@ interface Props {
   theme: 'dark' | 'light'
   onToggleTheme: () => void
   onOpenSettings: () => void
+  /** 点击 sd 头像或「未登录」时打开登录注册弹窗 */
+  onOpenAuth: () => void
   /** ≤860px 时侧栏转为抽屉，由移动端悬浮按钮控制 */
   open?: boolean
 }
@@ -40,6 +42,8 @@ interface NavItem {
   /** SD 尚无对应页面：照参照稿保留该项，置灰并标注 */
   pending?: boolean
 }
+
+const ROLE_LABEL: Record<string, string> = { owner: '本机所有者', member: '成员' }
 
 /** 顺序与文案完全照参照稿的 8 项；末尾两项是 SD 自有页面，避免失去入口 */
 const NAV: NavItem[] = [
@@ -64,7 +68,7 @@ const NAV: NavItem[] = [
  * 工作区与项目挂在这里，而不是在工作台页内再开一条左栏 —— 参照稿的侧栏
  * 本身就是域感知的；数据来自 WorkbenchProvider，与工作台页共享同一份状态。
  */
-export default function AppSidebar({ currentPath, onNavigate, theme, onToggleTheme, onOpenSettings, open = false }: Props) {
+export default function AppSidebar({ currentPath, onNavigate, theme, onToggleTheme, onOpenSettings, onOpenAuth, open = false }: Props) {
   const { model, filter, setFilter, act } = useWorkbenchContext()
   const { auth, snapshot, logout } = model
 
@@ -164,12 +168,22 @@ export default function AppSidebar({ currentPath, onNavigate, theme, onToggleThe
       )}
 
       <div className="wb-user">
-        <div className="wb-user__avatar">
-          {(auth?.user?.displayName || 'SD').slice(0, 2).toUpperCase()}
-        </div>
+        {authed ? (
+          <div className="wb-user__avatar">{(auth?.user?.displayName || 'SD').slice(0, 2).toUpperCase()}</div>
+        ) : (
+          <button type="button" className="wb-user__avatar wb-user__avatar--button" title="登录 / 注册" aria-label="登录或注册" onClick={onOpenAuth}>
+            SD
+          </button>
+        )}
         <div className="wb-user__meta">
-          <div className="wb-user__name">{auth?.user?.displayName || '未登录'}</div>
-          <div className="wb-user__role">{authed ? (auth?.user?.role === 'owner' ? '本机所有者' : auth?.user?.role) : '本机账户'}</div>
+          {authed ? (
+            <div className="wb-user__name">{auth?.user?.displayName}</div>
+          ) : (
+            <button type="button" className="wb-user__name wb-user__trigger" title="登录 / 注册" onClick={onOpenAuth}>
+              未登录
+            </button>
+          )}
+          <div className="wb-user__role">{authed ? ROLE_LABEL[auth?.user?.role || ''] || auth?.user?.role : '点击登录或注册'}</div>
         </div>
         <div className="wb-account">
           <button
@@ -202,7 +216,7 @@ export default function AppSidebar({ currentPath, onNavigate, theme, onToggleThe
                 <IconGear />
                 系统设置
               </button>
-              {authed && (
+              {authed ? (
                 <button
                   className="wb-account__item"
                   onClick={() => {
@@ -212,6 +226,17 @@ export default function AppSidebar({ currentPath, onNavigate, theme, onToggleThe
                 >
                   <IconLogout />
                   退出登录
+                </button>
+              ) : (
+                <button
+                  className="wb-account__item"
+                  onClick={() => {
+                    setAccountOpen(false)
+                    onOpenAuth()
+                  }}
+                >
+                  <IconUsers />
+                  登录 / 注册
                 </button>
               )}
             </div>

@@ -72,6 +72,9 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
     'auth.login': (p: any) => auth.login(clientId, p || {}),
     'auth.logout': () => auth.logout(clientId),
     'auth.changePassword': (p: any) => auth.changePassword(clientId, p || {}),
+    // 验证码（注册 / 找回密码共用）与凭验证码重置密码：未登录即可调用
+    'auth.requestCode': (p: any) => auth.requestCode(p || {}),
+    'auth.resetPassword': (p: any) => auth.resetPassword(p || {}),
 
     'workbench.dashboard': () => guard(() => workbench.dashboard()),
     'workbench.timeline': (p: any) => guard(() => workbench.timeline(p || {})),
@@ -204,6 +207,7 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
 /** 声明式方法清单：前端两种运行模式据此生成一致的 window.sd 门面 */
 export const WORKBENCH_RPC_METHODS: string[] = [
   'auth.status', 'auth.register', 'auth.login', 'auth.logout', 'auth.changePassword',
+  'auth.requestCode', 'auth.resetPassword',
   'workbench.dashboard', 'workbench.timeline', 'workbench.search', 'workbench.workspaces',
   'workbench.workspace.create', 'workbench.workspace.switch', 'workbench.workspace.stats',
   'workbench.project.list', 'workbench.project.create', 'workbench.project.update',

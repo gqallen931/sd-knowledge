@@ -43,6 +43,10 @@ if (useElectron) {
   })
 }
 
+// 开发/构建共用：把后端直连地址注入 import.meta.env（VITE_ 前缀才会暴露给前端代码）。
+// SSE 经 Vite 代理即使完整收完，Chromium 也会记 net::ERR_ABORTED，故开发态直连后端端口绕开代理。
+process.env.VITE_RPC_ORIGIN ||= `http://127.0.0.1:${process.env.SD_WEB_RPC_PORT || 5174}`
+
 export default defineConfig({
   plugins: [
     react(),

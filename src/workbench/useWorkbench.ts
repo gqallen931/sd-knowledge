@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  SDAuthUser,
   SDNotification,
   SDReminder,
   SDTask,
@@ -8,12 +9,7 @@ import type {
   SDWorkspace,
 } from '../types/global'
 
-export interface WorkbenchUser {
-  id: number
-  username: string
-  displayName: string
-  role: string
-}
+export type WorkbenchUser = SDAuthUser
 
 export interface WorkbenchAuth {
   needsSetup: boolean
@@ -162,22 +158,6 @@ export function useWorkbench() {
     }
   }, [])
 
-  const login = useCallback(
-    async (username: string, password: string) => {
-      await window.sd.auth.login({ username, password })
-      await load()
-    },
-    [load],
-  )
-
-  const register = useCallback(
-    async (username: string, password: string, displayName?: string) => {
-      await window.sd.auth.register({ username, password, displayName })
-      await load()
-    },
-    [load],
-  )
-
   const logout = useCallback(async () => {
     await window.sd.auth.logout()
     await load()
@@ -201,8 +181,6 @@ export function useWorkbench() {
     unread,
     reload: load,
     refresh,
-    login,
-    register,
     logout,
   }
 }

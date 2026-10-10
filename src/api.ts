@@ -145,7 +145,10 @@ export async function askStream(payload: AskStreamPayload, handlers: AskStreamHa
   }
 
   try {
-    const response = await fetch('/local/ask/stream', {
+    // 开发态直连后端端口：经 Vite 代理的 SSE 响应即使完整收完，Chromium 也会记一条 net::ERR_ABORTED。
+    // VITE_RPC_ORIGIN 由 vite.config 注入；生产 Web 构建同源（webEntry 托管静态文件），保持相对路径。
+    const rpcOrigin: string = import.meta.env.DEV ? (import.meta.env.VITE_RPC_ORIGIN || '') : ''
+    const response = await fetch(`${rpcOrigin}/local/ask/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-SD-Session': await token() },
       body: JSON.stringify(payload),
@@ -180,9 +183,9 @@ export async function askStream(payload: AskStreamPayload, handlers: AskStreamHa
           else if (event.type === 'error') throw rpcError(event.message || '问答失败', event.code === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' : 'RPC_FAILED')
         }
       }
-      // 完整结果已到手：直接 break，等服务端 FIN 自然结束，不再主动 cancel。
-      // 主动 cancel 会触发 Chromium 的 net::ERR_ABORTED 控制台噪音。
-      if (result) break
+      // 不在 result 处提前 break：继续读到服务端 FIN 自然收尾。
+      // 提前 break / reader.cancel() 都会被 Chromium 视为「中止请求」，控制台必记一条 net::ERR_ABORTED；
+      // 服务端发完 result 就 res.end()，多读一次 FIN 的等待几乎为零。
     }
     if (!result) throw new Error('问答未返回结果，请重试')
     return result

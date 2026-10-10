@@ -21,6 +21,23 @@ async function main() {
   const app = express()
   const token = randomBytes(32).toString('hex')
   app.use(express.json())
+  // 仅放行本机开发 origins（Vite 5173 等）：经 Vite 代理的 SSE 响应即使完整收完，
+  // Chromium 也会记一条 net::ERR_ABORTED——开发态前端直连本端口绕开代理（api.ts 的 VITE_RPC_ORIGIN）。
+  // 生产 Web 构建由本服务托管静态文件，同源请求不携带 origin，不受影响。
+  app.use((req, res, next) => {
+    const origin = req.headers.origin as string | undefined
+    if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+      if (req.method === 'OPTIONS') {
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-SD-Session')
+        res.setHeader('Access-Control-Max-Age', '600')
+        return res.sendStatus(204)
+      }
+    }
+    next()
+  })
   app.get('/local/session', (_req, res) => res.json({ token }))
   app.use('/local', (req, res, next) => {
     if (req.headers['x-sd-session'] !== token) return res.status(403).json({ error: '无效的本地会话，请刷新页面' })
@@ -133,11 +150,12 @@ async function main() {
     })
     const send = (payload: Record<string, unknown>) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`) }
     const controller = new AbortController()
-    // 必须在 **response** 的 close 上取消：req 的 close 在请求体读完时就会触发（会误杀还没开始的生成）
-    // 但 res.end() 正常结束时 close 也会触发，需排除——否则 AbortController 会让浏览器报 net::ERR_ABORTED
-    let clientGone = false
-    req.on('close', () => { clientGone = true; controller.abort() })
-    res.on('close', () => { if (clientGone) controller.abort() })
+    // 只在「响应还没写完、连接先断」时取消生成（writableEnded=false + close = 客户端真断开）。
+    // 两个坑：① 挂 req 的 close 不行——JSON 请求体读完它就触发，会把刚开始的 LLM 调用杀成 CANCELLED；
+    // ② res.end() 正常收尾也会触发 res 的 close——此时 writableEnded 已为 true，必须放行，否则误报中断。
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort()
+    })
     try {
       const result = await r.answer.ask({
         ...(req.body || {}),

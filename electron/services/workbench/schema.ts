@@ -207,4 +207,38 @@ export const workbenchMigrations: Migration[] = [
       `)
     },
   },
+  {
+    version: 107,
+    name: 'workbench-account-contacts-and-codes',
+    up(db) {
+      // 账户以邮箱或手机号注册：联系方式即登录标识，并作为找回密码的绑定渠道。
+      // ALTER ADD COLUMN 不接受 UNIQUE，唯一性交给部分唯一索引（允许历史行为 NULL）。
+      const columns = db.prepare('PRAGMA table_info(users)').all()
+      const has = (name: string) => columns.some((column: any) => column.name === name)
+      if (!has('contact_type')) db.exec('ALTER TABLE users ADD COLUMN contact_type TEXT')
+      if (!has('contact')) db.exec('ALTER TABLE users ADD COLUMN contact TEXT')
+      if (!has('contact_verified_at')) db.exec('ALTER TABLE users ADD COLUMN contact_verified_at TEXT')
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_contact ON users(contact) WHERE contact IS NOT NULL;
+
+        -- 验证码只存哈希与盐；过期时间、创建时间统一用 ISO 字符串（由应用写入），避免与 SQLite 的 UTC 文本格式混用
+        CREATE TABLE IF NOT EXISTS verification_codes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purpose TEXT NOT NULL CHECK (purpose IN ('register', 'reset')),
+          contact_type TEXT NOT NULL CHECK (contact_type IN ('email', 'phone')),
+          contact TEXT NOT NULL,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          code_hash TEXT NOT NULL,
+          salt TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_verification_codes_contact ON verification_codes(contact, purpose, created_at);
+      `)
+    },
+  },
 ]

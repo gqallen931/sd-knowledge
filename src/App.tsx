@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import AppSidebar from './components/Layout/AppSidebar'
+import AuthDialog from './workbench/AuthDialog'
 import CommandBar from './components/Layout/CommandBar'
 import Dashboard from './pages/Dashboard'
 import FileManager from './pages/FileManager'
@@ -26,6 +27,7 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [cmdOpen, setCmdOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function App() {
             theme={theme}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAuth={() => setAuthOpen(true)}
           open={sidebarOpen}
         />
 
@@ -111,6 +114,7 @@ export default function App() {
           onNavigate={(p) => { navigate(p); setCmdOpen(false) }}
             />
             {settingsOpen && <Settings modal onClose={() => setSettingsOpen(false)} />}
+            {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
       </div>
     </WorkbenchProvider>
   )

@@ -857,19 +857,25 @@ async function run() {
 
   // ==================== ADR-003：工作台域（与内核域同库融合） ====================
   {
-    // ---- 身份：users 表为唯一身份源 ----
+    // ---- 身份：users 表为唯一身份源（邮箱 + 验证码注册；验证码通过注入的发送器截获）----
+    const { AuthService } = require('../dist-electron/services/workbench/authService')
+    const sentCodes = []
+    const codeAuth = new AuthService(restarted.db, { sender: { send: async delivery => { sentCodes.push(delivery) } } })
     assert.equal(restarted.auth.needsSetup(), true)
-    const created = restarted.auth.register('tester', { username: 'tester', password: 'test1234', displayName: '测试员' })
+    await codeAuth.requestCode({ purpose: 'register', contact: 'Tester@Example.com' })
+    const created = codeAuth.register('tester', { contact: 'tester@example.com', code: sentCodes[0].code, password: 'test1234', displayName: '测试员' })
     assert.equal(created.role, 'owner')
-    const stored = restarted.db.prepare('SELECT password_hash, salt FROM users WHERE username = ?').get('tester')
+    assert.equal(created.maskedContact, 'te***@example.com')
+    const stored = restarted.db.prepare('SELECT password_hash, salt, contact FROM users WHERE contact = ?').get('tester@example.com')
     assert(stored.password_hash.length === 128 && !stored.password_hash.includes('test1234'))
     assert(stored.salt.length === 32)
-    // 已经初始化过，不允许再次注册（避免第二个 owner 悄悄出现）
-    assert.throws(() => restarted.auth.register('other', { username: 'hacker', password: 'test1234' }), /已经初始化/)
-    assert.throws(() => restarted.auth.login('other', { username: 'tester', password: 'wrong1234' }), /用户名或密码错误/)
-    restarted.auth.logout('tester')
-    assert.throws(() => restarted.auth.requireSession('tester'), /AUTH_REQUIRED/)
-    assert.equal(restarted.auth.login('tester', { username: 'tester', password: 'test1234' }).displayName, '测试员')
+    // 同一邮箱不允许重复注册（避免同一身份出现两个账户）
+    await assert.rejects(codeAuth.requestCode({ purpose: 'register', contact: 'tester@example.com' }), /已注册/)
+    assert.throws(() => codeAuth.register('other', { contact: 'tester@example.com', code: sentCodes[0].code, password: 'test1234' }), /已注册/)
+    codeAuth.logout('tester')
+    assert.throws(() => codeAuth.requireSession('tester'), /AUTH_REQUIRED/)
+    assert.throws(() => restarted.auth.login('other', { account: 'tester@example.com', password: 'wrong1234' }), /账号或密码错误/)
+    assert.equal(restarted.auth.login('tester', { account: 'tester@example.com', password: 'test1234' }).displayName, '测试员')
 
     // ---- RPC 门面：未登录一律 AUTH_REQUIRED ----
     const { createWorkbenchRpc, WORKBENCH_RPC_METHODS } = require('../dist-electron/services/workbench/rpcHandlers')
@@ -880,7 +886,7 @@ async function run() {
     assert.equal(rpc['auth.status']().authenticated, false)
     assert.throws(() => rpc['task.list'](), /AUTH_REQUIRED/)
     assert.throws(() => rpc['data.export'](), /AUTH_REQUIRED/)
-    restarted.auth.login('anon', { username: 'tester', password: 'test1234' })
+    restarted.auth.login('anon', { account: 'tester@example.com', password: 'test1234' })
     assert.equal(rpc['auth.status']().authenticated, true)
     // 方法表与实现必须一一对应，防止清单里写了却没有实现
     const missing = WORKBENCH_RPC_METHODS.filter(name => typeof rpc[name] !== 'function')

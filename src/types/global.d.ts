@@ -410,11 +410,27 @@ export interface SDPluginStatus {
  * 方法名即 `组.方法` 的完整 RPC 名称，前端由 Proxy 动态生成（见 src/api.ts），
  * 因此这里新增一个方法只需在主进程的 rpcHandlers.ts 里加一行。
  */
+export interface SDAuthUser {
+  id: number
+  username: string
+  displayName: string
+  role: string
+  contactType: 'email' | 'phone' | null
+  /** 掩码后的联系方式，如 ab***@example.com / 138****0000；明文不回传到渲染进程 */
+  maskedContact: string | null
+}
+
 export interface SDWorkbenchApi {
   auth: {
-    status: () => Promise<{ needsSetup: boolean; authenticated: boolean; user: { id: number; username: string; displayName: string; role: string } | null }>
-    register: (payload: { username: string; password: string; displayName?: string }) => Promise<{ id: number; username: string; displayName: string; role: string }>
-    login: (payload: { username: string; password: string }) => Promise<{ id: number; username: string; displayName: string; role: string }>
+    status: () => Promise<{ needsSetup: boolean; authenticated: boolean; user: SDAuthUser | null }>
+    /** 注册：邮箱或手机号 + 验证码 + 密码（验证码由 requestCode 发送） */
+    register: (payload: { contact: string; code: string; password: string; displayName?: string }) => Promise<SDAuthUser>
+    /** 登录：account 为注册时使用的邮箱或手机号 */
+    login: (payload: { account: string; password: string }) => Promise<SDAuthUser>
+    /** 申请验证码。reset 时账户不存在也返回 accepted，不泄露是否注册 */
+    requestCode: (payload: { purpose: 'register' | 'reset'; contact: string }) => Promise<{ accepted: true; cooldownSeconds: number; expiresInSeconds: number }>
+    /** 凭已绑定联系方式的验证码重置密码；成功后该账户所有会话失效 */
+    resetPassword: (payload: { contact: string; code: string; newPassword: string; confirmPassword: string }) => Promise<boolean>
     logout: () => Promise<boolean>
     changePassword: (payload: { currentPassword: string; newPassword: string }) => Promise<boolean>
   }
