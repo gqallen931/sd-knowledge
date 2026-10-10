@@ -247,8 +247,9 @@ export class APIServer {
       })
       const send = (payload: Record<string, unknown>) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`) }
       const controller = new AbortController()
-      // 在 response 的 close 上取消（req 的 close 在请求体读完时就会触发，会误杀尚未开始的生成）
-      res.on('close', () => controller.abort())
+      // 在 response 的 close 上取消（req 的 close 在请求体读完时就会触发，会误杀尚未开始的生成）；
+      // res.end() 正常收尾也会触发 close，此时 writableEnded 已为 true，必须放行（同 webEntry 的结论）
+      res.on('close', () => { if (!res.writableEnded) controller.abort() })
       try {
         const result = await answer.ask({ ...(req.body || {}), actor: 'api', signal: controller.signal, stream: true, onChunk: chunk => send({ type: 'chunk', chunk }) })
         send({ type: 'result', result })
