@@ -79,6 +79,11 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
     'workbench.dashboard': () => guard(() => workbench.dashboard()),
     'workbench.timeline': (p: any) => guard(() => workbench.timeline(p || {})),
     'workbench.search': (q: any, options?: SearchOptions) => guard(() => workbench.searchAll(q, search, options || {})),
+    // 保存的检索（S2-07）：存查询 + 结果指纹比对，新文档入库后变化写通知
+    'search.saved.list': () => guard(() => search.listSavedSearches()),
+    'search.saved.save': (p: any) => guard(() => search.saveSearch(p || {})),
+    'search.saved.remove': (id: any) => guard(() => search.removeSavedSearch(Number(id))),
+    'search.saved.rerun': (id: any) => guard(() => search.rerunSavedSearch(Number(id))),
     'workbench.workspaces': () => guard(() => workbench.listWorkspaces()),
     'workbench.workspace.create': (p: any) => guard(() => workbench.createWorkspace(p || {})),
     'workbench.workspace.switch': (id: any) => guard(() => workbench.switchWorkspace(id)),

@@ -43,7 +43,7 @@ async function runMcpServer() {
   // RAG 问答（S1-03）在 MCP 出口也要可用：装配 LLM 网关与问答服务（未配置模型时降级为纯检索）
   const llmGateway = new LlmGateway()
   const llmService = new LlmService(db, dataDir, llmGateway)
-  const answerService = new AnswerService(searchService, llmService)
+  const answerService = new AnswerService(searchService, llmService, row => db.logAgentQuery(row))
 
   const mcpServer = new McpServerService(db, fileService, searchService, graphBuilder, workbenchDomains, answerService)
   await mcpServer.start()

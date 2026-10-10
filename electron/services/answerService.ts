@@ -107,14 +107,47 @@ const SYSTEM_PROMPT = [
   '4. 使用简洁的中文作答。',
 ].join('\n')
 
+/** Agent 查询日志行（S2-09）：落 `agent_query_logs`，由装配层注入写入口 */
+export interface AgentQueryLogRow {
+  sessionId?: string | null
+  queryType: string
+  queryParams: unknown
+  resultCount?: number | null
+  responseTimeMs?: number | null
+}
+
 export class AnswerService {
   constructor(
     private search: SearchService,
     private llm: LlmService,
+    /** S2-09：apiServer SSE / mcpServer / webEntry chat.ask 三个出口都走 ask()，日志在此单点收口 */
+    private logQuery?: (row: AgentQueryLogRow) => void,
   ) {}
 
   async ask(input: AnswerAskInput = {}): Promise<AnswerResult> {
+    const startedAt = Date.now()
     const query = String(input.query ?? '').trim()
+    try {
+      const result = await this.askInner(input, query)
+      this.logQuery?.({
+        queryType: 'ask',
+        queryParams: { query, actor: input.actor || 'user', mode: result.mode },
+        resultCount: result.context_meta?.block_count ?? null,
+        responseTimeMs: Date.now() - startedAt,
+      })
+      return result
+    } catch (e) {
+      this.logQuery?.({
+        queryType: 'ask',
+        queryParams: { query, actor: input.actor || 'user', mode: 'exception' },
+        resultCount: null,
+        responseTimeMs: Date.now() - startedAt,
+      })
+      throw e
+    }
+  }
+
+  private async askInner(input: AnswerAskInput, query: string): Promise<AnswerResult> {
     if (!query) throw new Error('提问不能为空')
 
     const scope = normalizeScope(input.scope ?? (input as Record<string, unknown>))

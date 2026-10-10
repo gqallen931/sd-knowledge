@@ -429,6 +429,27 @@ export default class DatabaseService {
     return this.getQueuedTasks().map(task => task.documentId)
   }
 
+  /**
+   * Agent 查询日志（S2-09）：`agent_query_logs` 有表无写入的现状在此收口。
+   * 仅日志，绝不让写日志失败影响主流程（调用方 answerService.ask 的返回不受影响）。
+   */
+  logAgentQuery(row: { sessionId?: string | null; queryType: string; queryParams: unknown; resultCount?: number | null; responseTimeMs?: number | null }) {
+    try {
+      this.db.prepare(`
+        INSERT INTO agent_query_logs (session_id, query_type, query_params, result_count, response_time_ms)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        row.sessionId ?? null,
+        row.queryType,
+        typeof row.queryParams === 'string' ? row.queryParams : JSON.stringify(row.queryParams ?? {}),
+        row.resultCount ?? null,
+        row.responseTimeMs ?? null,
+      )
+    } catch (e) {
+      console.error('logAgentQuery failed:', e)
+    }
+  }
+
   clearQueue() {
     try {
       this.db.prepare('DELETE FROM processing_queue').run()

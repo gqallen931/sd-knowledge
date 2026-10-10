@@ -37,10 +37,23 @@ export async function createRuntime(dataDir: string) {
   const security = new SecurityService(db)
   const backup = new BackupService(db, dataDir)
   backup.start()
+  // S2-07：文档状态落定后比对保存的检索；批量导入用 5s 防抖合并成一次，避免混合检索被打满
+  let savedCheckTimer: ReturnType<typeof setTimeout> | null = null
+  const scheduleSavedSearchCheck = () => {
+    if (savedCheckTimer) clearTimeout(savedCheckTimer)
+    savedCheckTimer = setTimeout(() => {
+      savedCheckTimer = null
+      void search.checkSavedSearches().catch(() => { /* 失败不影响解析主流程 */ })
+    }, 5000)
+    savedCheckTimer.unref?.()
+  }
   // 解析队列：并发 N + 优先级出队（用户交互 > 导入 > 断点恢复 > 目录映射批量）
   const queue = new ProcessingQueue({
     concurrency: Number(db.getSettingsSync().queue_concurrency),
-    run: (id: number) => processing.processDocument(id),
+    run: async (id: number) => {
+      await processing.processDocument(id)
+      scheduleSavedSearchCheck()
+    },
     onEnqueue: task => db.markQueued(task.documentId, task.priority),
     onDequeue: id => db.unmarkQueued(id),
     onError: (id, error) => console.error(`[runtime] 解析失败 #${id}:`, error),
@@ -68,8 +81,8 @@ export async function createRuntime(dataDir: string) {
   const llm = new LlmGateway()
   // S1-01：把 llm_providers 的配置翻译成 provider 注册进网关，并装配出域闸门（S1-02）
   const llmService = new LlmService(db, dataDir, llm)
-  // S1-03：RAG 问答链路（混合检索 → 上下文组装 → LLM → 答案 + 引用）
-  const answer = new AnswerService(search, llmService)
+  // S1-03：RAG 问答链路（混合检索 → 上下文组装 → LLM → 答案 + 引用）；S2-09：查询日志在此落 agent_query_logs
+  const answer = new AnswerService(search, llmService, row => db.logAgentQuery(row))
   // 开源资源汇：卡片式展示收集的开源模型/技能/工具（表空时自动灌入种子数据）
   const resources = new ResourceService(db)
   // GitHub 每日榜单：缓存每日各领域 star 前 15 项目；每天 08:00 定时刷新 + 启动补拉当天缺失数据

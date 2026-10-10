@@ -227,4 +227,31 @@ export const coreMigrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_github_rank_date ON github_rank_snapshots(snapshot_date, category);`)
     },
   },
+  {
+    version: 7,
+    name: 'saved-searches',
+    /**
+     * 保存的检索（S2-07）：存查询与过滤条件，记录上次结果集哈希；
+     * 新文档入库后重跑比对，哈希变化写一条通知（S2-09 之外的第二类站内消息来源）。
+     *
+     * 幂等：DDL 全部 IF NOT EXISTS。
+     */
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS saved_searches (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          name              TEXT NOT NULL,
+          query             TEXT NOT NULL,
+          filters_json      TEXT,
+          owner             TEXT,
+          notify_on_change  INTEGER NOT NULL DEFAULT 1,
+          result_hash       TEXT,
+          last_run_at       TEXT,
+          last_result_count INTEGER,
+          created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_saved_searches_owner ON saved_searches(owner);`)
+    },
+  },
 ]

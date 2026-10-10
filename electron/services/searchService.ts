@@ -1,5 +1,6 @@
 import DatabaseService from './database'
 import type { ProcessingEngine } from './processingEngine'
+import { createHash } from 'crypto'
 import {
   ResultSet,
   RESULT_LIMITS,
@@ -698,6 +699,101 @@ export class SearchService {
       token_count: tokens,
       truncated: truncatedByContext || retrieval.truncated,
       truncated_reason: reason,
+    }
+  }
+
+  // ── 保存的检索（S2-07）──────────────────────────────────────────────
+
+  /** 用户保存的检索列表（owner 为空表示不过滤；最多回 100 条，滚动加载暂无必要） */
+  listSavedSearches(owner?: string | null): any[] {
+    const rows = owner
+      ? this.db.prepare('SELECT * FROM saved_searches WHERE owner = ? ORDER BY id DESC LIMIT 100').all(String(owner))
+      : this.db.prepare('SELECT * FROM saved_searches ORDER BY id DESC LIMIT 100').all()
+    return rows as any[]
+  }
+
+  /**
+   * 保存一条检索并立即跑一次，把结果指纹存进 `result_hash`（首次保存不算「变化」）。
+   * 名称/查询为空是调用方表单应拦下的事，这里再兜一道底。
+   */
+  async saveSearch(input: { name?: string; query?: string; filters?: any; owner?: string | null; notify_on_change?: boolean }): Promise<any> {
+    const name = String(input?.name ?? '').trim()
+    const query = String(input?.query ?? '').trim()
+    if (!name) throw new Error('请给这条检索起个名字')
+    if (!query) throw new Error('检索词不能为空')
+    const notify = input?.notify_on_change === false ? 0 : 1
+    const filtersJson = input?.filters && Object.keys(input.filters).length ? JSON.stringify(input.filters) : null
+    const result = this.db.prepare(`
+      INSERT INTO saved_searches (name, query, filters_json, owner, notify_on_change)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(name, query, filtersJson, input?.owner ?? null, notify)
+    const id = Number(result.lastInsertRowid)
+    await this.refreshSavedSearch(id, { silentFirstRun: true })
+    return this.db.prepare('SELECT * FROM saved_searches WHERE id = ?').get(id)
+  }
+
+  removeSavedSearch(id: number): boolean {
+    return this.db.prepare('DELETE FROM saved_searches WHERE id = ?').run(Number(id)).changes > 0
+  }
+
+  /** 手动重跑：更新指纹与计数，但不发通知（用户自己点的，结果变化是预期内的） */
+  async rerunSavedSearch(id: number): Promise<any> {
+    const row = await this.refreshSavedSearch(Number(id), {})
+    if (!row) throw new Error('保存的检索不存在或已被删除')
+    return row
+  }
+
+  /** 结果集指纹：total + 命中文档 id 升序拼接后取 sha256 前 32 位（与排序无关，稳定） */
+  private async savedSearchFingerprint(query: string, filtersJson: string | null): Promise<{ hash: string; count: number }> {
+    const filters = filtersJson ? JSON.parse(filtersJson) : {}
+    const rs = await this.hybridSearch(query, { ...filters, limit: 20 })
+    const ids = rs.items.map((item: any) => Number(item?.id)).filter(Number.isFinite).sort((a: number, b: number) => a - b)
+    const hash = createHash('sha256').update(`${rs.total}|${ids.join(',')}`).digest('hex').slice(0, 32)
+    return { hash, count: rs.total }
+  }
+
+  /** 重跑一条保存的检索并落指纹；`silentFirstRun` 用于刚保存时的首次执行（无旧值可比，不发通知） */
+  private async refreshSavedSearch(id: number, opts: { silentFirstRun?: boolean }): Promise<any | null> {
+    const row = this.db.prepare('SELECT * FROM saved_searches WHERE id = ?').get(id) as any
+    if (!row) return null
+    let fingerprint: { hash: string; count: number }
+    try {
+      fingerprint = await this.savedSearchFingerprint(String(row.query), row.filters_json ?? null)
+    } catch (e) {
+      // 检索失败（如向量化未就绪）：保留旧指纹，下次再比；不把失败当成「结果没变」以外的任何信号
+      console.error('refreshSavedSearch failed:', e)
+      return row
+    }
+    const changed = !opts.silentFirstRun && row.result_hash != null && row.result_hash !== fingerprint.hash
+    this.db.prepare('UPDATE saved_searches SET result_hash = ?, last_result_count = ?, last_run_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(fingerprint.hash, fingerprint.count, id)
+    if (changed && row.notify_on_change) {
+      this.db.prepare("INSERT INTO notifications (type, title, message) VALUES ('info', ?, ?)").run(
+        '保存的检索有更新',
+        `「${row.name}」的结果集发生变化，现在约 ${fingerprint.count} 条。可到检索中心重跑查看。`,
+      )
+    }
+    return this.db.prepare('SELECT * FROM saved_searches WHERE id = ?').get(id)
+  }
+
+  /**
+   * 文档入库后触发（S2-07 验收：新文档入库后提示结果变化）。
+   * 逐条串行重跑，避免混合检索并发打满；任何一条失败不影响其余。
+   */
+  async checkSavedSearches(): Promise<void> {
+    let rows: any[] = []
+    try {
+      rows = this.db.prepare('SELECT id FROM saved_searches WHERE notify_on_change = 1').all() as any[]
+    } catch (e) {
+      console.error('checkSavedSearches failed:', e)
+      return
+    }
+    for (const row of rows) {
+      try {
+        await this.refreshSavedSearch(Number(row.id), {})
+      } catch {
+        /* refreshSavedSearch 内部已兜底 */
+      }
     }
   }
 
