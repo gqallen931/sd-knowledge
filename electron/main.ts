@@ -491,6 +491,11 @@ function registerIPC() {
     return await securityService.pruneAuditLogs()
   })
 
+  // S2-02：分析页聚合（知识库规模 + 入库/命中趋势）
+  handle('analytics:overview', async (_, options?: { days?: number }) => {
+    return await db.getAnalyticsOverview(options?.days)
+  })
+
   // 工作台域：与 Web 入口共用同一份方法表（services/workbench/rpcHandlers.ts），
   // 所有方法走一个通道，避免每加一个接口就改三处（方法表 / preload / 前端门面）
   const workbenchRpc = createWorkbenchRpc({

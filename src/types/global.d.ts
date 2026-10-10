@@ -689,6 +689,10 @@ export interface SDAPI extends SDWorkbenchApi {
     retentionSet: (days: number) => Promise<number>
     prune: () => Promise<{ removed: number; remaining: number; snapshot: string | null }>
   }
+  /** S2-02：分析页聚合（知识库规模 + 近 N 天入库/问答命中趋势，样本不足如实标注） */
+  analytics: {
+    overview: (options?: { days?: number }) => Promise<SDAnalyticsOverview>
+  }
   shell: {
     openPath: (filePath: string) => Promise<void>
     showInFolder: (filePath: string) => Promise<void>

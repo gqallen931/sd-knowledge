@@ -76,6 +76,7 @@ if (!window.sd) {
     settings: group('settings', ['get', 'update']),
     security: { ...group('security', ['status', 'setup', 'verify']), apiKeys: group('security.apiKeys', ['list', 'create', 'revoke']) },
     audit: group('audit', ['list', 'retentionGet', 'retentionSet', 'prune']),
+    analytics: group('analytics', ['overview']),
     shell: { openPath: async () => { throw new Error('请在桌面版中打开本地文件') }, showInFolder: async () => { throw new Error('请在桌面版中打开文件夹') } },
     on: () => () => {},
   } as any

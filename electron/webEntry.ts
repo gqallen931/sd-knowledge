@@ -135,6 +135,8 @@ async function main() {
     'audit.retentionGet': () => r.security.getAuditRetentionDays(),
     'audit.retentionSet': (days: number) => r.security.setAuditRetentionDays(days),
     'audit.prune': () => r.security.pruneAuditLogs(),
+    // S2-02：分析页聚合（知识库规模 + 入库/命中趋势）
+    'analytics.overview': (options?: { days?: number }) => r.db.getAnalyticsOverview(options?.days),
   }
   app.post('/local/rpc', async (req, res, next) => {
     try {

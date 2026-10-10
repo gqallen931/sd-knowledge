@@ -87,6 +87,9 @@ const api = {
     retentionSet: (days: number) => ipcRenderer.invoke('audit:retentionSet', days),
     prune: () => ipcRenderer.invoke('audit:prune'),
   },
+  analytics: {
+    overview: (options?: { days?: number }) => ipcRenderer.invoke('analytics:overview', options),
+  },
   shell: {
     openPath: (filePath: string) => ipcRenderer.invoke('shell:openPath', filePath),
     showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),

@@ -494,6 +494,73 @@ export default class DatabaseService {
     }
   }
 
+  /**
+   * 分析页聚合（S2-02）：知识库规模 + 近 N 天入库/问答命中趋势。
+   *
+   * 命中趋势读 `agent_query_logs`（S2-09 起 answerService.ask 逐次落行，三个问答出口共用）；
+   * 样本不足（窗口内问答次数过少）时如实标注，不伪造趋势结论。
+   * created_at / imported_at 均为 CURRENT_TIMESTAMP（UTC 无时区标记），SQL 内用 'localtime' 修正口径。
+   */
+  async getAnalyticsOverview(windowDays = 14) {
+    const days = Math.min(60, Math.max(7, Math.round(Number(windowDays) || 14)))
+
+    const trend = this.db.prepare(`WITH RECURSIVE days(day) AS (
+        SELECT date('now','localtime','-${days - 1} days')
+        UNION ALL SELECT date(day,'+1 day') FROM days WHERE day < date('now','localtime')
+      ) SELECT day,
+        (SELECT COUNT(*) FROM documents WHERE is_available=1 AND date(imported_at,'localtime')=day) AS documents,
+        (SELECT COUNT(*) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS queries,
+        (SELECT AVG(result_count) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS avg_results,
+        (SELECT AVG(response_time_ms) FROM agent_query_logs WHERE date(created_at,'localtime')=day) AS avg_latency_ms
+      FROM days ORDER BY day`).all(days - 1) as any[]
+
+    const one = (sql: string) => Number((this.db.prepare(sql).get() as any)?.value || 0)
+    const totals = {
+      documents: one('SELECT COUNT(*) AS value FROM documents WHERE is_available=1'),
+      chunks: one('SELECT COUNT(*) AS value FROM chunks'),
+      entities: one('SELECT COUNT(*) AS value FROM entities'),
+      relationships: one('SELECT COUNT(*) AS value FROM relationships'),
+      projects: one('SELECT COUNT(*) AS value FROM projects'),
+      localFiles: one("SELECT COUNT(*) AS value FROM documents WHERE storage_type='local' AND is_available=1"),
+      referenceFiles: one("SELECT COUNT(*) AS value FROM documents WHERE storage_type='reference' AND is_available=1"),
+      indexedFiles: one('SELECT COUNT(DISTINCT document_id) AS value FROM vectors'),
+    }
+
+    const queryRow = this.db.prepare(`
+      SELECT COUNT(*) AS total, AVG(result_count) AS avg_results, AVG(response_time_ms) AS avg_latency_ms,
+        MAX(created_at) AS last_at
+      FROM agent_query_logs WHERE date(created_at,'localtime') >= date('now','localtime','-${days - 1} days')
+    `).get() as any
+    const queries = {
+      total: Number(queryRow?.total || 0),
+      avgResults: queryRow?.avg_results == null ? null : Math.round(Number(queryRow.avg_results) * 10) / 10,
+      avgLatencyMs: queryRow?.avg_latency_ms == null ? null : Math.round(Number(queryRow.avg_latency_ms)),
+      lastAt: queryRow?.last_at || null,
+    }
+    // 样本口径：窗口内不足 10 次问答不画趋势结论，只报「样本不足」
+    const sample = {
+      queries: queries.total,
+      sufficient: queries.total >= 10,
+      note: queries.total >= 10
+        ? null
+        : `近 ${days} 天仅 ${queries.total} 次问答，样本不足，趋势仅供参考`,
+    }
+
+    return {
+      windowDays: days,
+      totals,
+      queries,
+      sample,
+      trend: trend.map((row) => ({
+        date: row.day,
+        documents: Number(row.documents || 0),
+        queries: Number(row.queries || 0),
+        avgResults: row.avg_results == null ? null : Math.round(Number(row.avg_results) * 10) / 10,
+        avgLatencyMs: row.avg_latency_ms == null ? null : Math.round(Number(row.avg_latency_ms)),
+      })),
+    }
+  }
+
   async getRecentFiles(limit: number = 10) {
     return this.db.prepare(`
       SELECT d.id, d.title, d.file_name, d.file_type, d.file_size, d.storage_type, d.original_path,

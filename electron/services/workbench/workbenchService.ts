@@ -370,6 +370,59 @@ export class WorkbenchService {
   }
 
   /**
+   * 日程页聚合（S2-01）：任务按截止日分桶（本地日口径）+ 今日待办 + 逾期 + 提醒聚合。
+   *
+   * 日期口径统一在服务端算好再下发（`today` / 每行的 `date`），前端只做视图渲染，
+   * 不允许各自 new Date() 再算一遍——跨天边界的判定只有一个真相源。
+   * 提醒的 remind_at 是 UTC ISO 串，SQL 里用 date(…,'localtime') 转本地日口径。
+   */
+  calendar(options: { days?: unknown } = {}) {
+    const days = Math.min(124, Math.max(7, Number(options?.days) || 42))
+    const today = this.localDate()
+    const until = this.localDate(days - 1)
+
+    // 有截止日的任务：date(deadline) 归一后落在窗口内；无效日期（date() 为 NULL）自然被过滤
+    const tasks = this.db
+      .prepare(`
+        SELECT t.code AS id, t.name, t.status, t.priority, t.deadline,
+          date(t.deadline) AS date, t.owner, p.name AS projectName
+        FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.archived = 0 AND t.deadline IS NOT NULL AND t.deadline != ''
+          AND date(t.deadline) IS NOT NULL AND date(t.deadline) <= ?
+        ORDER BY date(t.deadline), t.position
+      `)
+      .all(until) as any[]
+
+    const todayTasks = tasks.filter((row) => row.date === today)
+    const overdue = tasks.filter((row) => row.date < today && row.status !== 'done')
+
+    // 无截止日的未完成任务 → 日程页「待安排」区
+    const unscheduled = this.db
+      .prepare(`
+        SELECT t.code AS id, t.name, t.status, t.priority, p.name AS projectName
+        FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.archived = 0 AND (t.deadline IS NULL OR t.deadline = '') AND t.status != 'done'
+        ORDER BY t.position LIMIT 50
+      `)
+      .all() as any[]
+
+    // 提醒聚合：含已触发（notified）未 dismissed 的，前端按状态标注；上限 200 条防极端数据拖垮
+    const reminders = (this.db
+      .prepare(`
+        SELECT id, task_code AS taskCode, title,
+          remind_at AS remindAt, repeat_rule AS repeatRule, status,
+          date(remind_at, 'localtime') AS date,
+          substr(time(remind_at, 'localtime'), 1, 5) AS time
+        FROM reminders
+        WHERE status != 'dismissed' AND date(remind_at, 'localtime') <= ?
+        ORDER BY datetime(remind_at, 'localtime'), id LIMIT 200
+      `)
+      .all(until) as any[]).map((row) => ({ ...row, id: Number(row.id) }))
+
+    return { today, days, tasks, todayTasks, overdue, unscheduled, reminders }
+  }
+
+  /**
    * 跨域时间线：把「任务截止」与「文档入库」放进同一条事件流。
    *
    * 这是融合最直接的兑现——两个域本就写在同一个库里，于是「这周要交什么」

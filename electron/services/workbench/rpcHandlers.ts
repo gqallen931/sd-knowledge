@@ -78,6 +78,8 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
 
     'workbench.dashboard': () => guard(() => workbench.dashboard()),
     'workbench.timeline': (p: any) => guard(() => workbench.timeline(p || {})),
+    // 日程页聚合（S2-01）：任务分桶 + 今日待办 + 逾期 + 提醒
+    'workbench.calendar': (p: any) => guard(() => workbench.calendar(p || {})),
     'workbench.search': (q: any, options?: SearchOptions) => guard(() => workbench.searchAll(q, search, options || {})),
     // 保存的检索（S2-07）：存查询 + 结果指纹比对，新文档入库后变化写通知
     'search.saved.list': () => guard(() => search.listSavedSearches()),
@@ -213,7 +215,7 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
 export const WORKBENCH_RPC_METHODS: string[] = [
   'auth.status', 'auth.register', 'auth.login', 'auth.logout', 'auth.changePassword',
   'auth.requestCode', 'auth.resetPassword',
-  'workbench.dashboard', 'workbench.timeline', 'workbench.search', 'workbench.workspaces',
+  'workbench.dashboard', 'workbench.timeline', 'workbench.calendar', 'workbench.search', 'workbench.workspaces',
   'workbench.workspace.create', 'workbench.workspace.switch', 'workbench.workspace.stats',
   'workbench.project.list', 'workbench.project.create', 'workbench.project.update',
   'workbench.project.archive', 'workbench.project.remove', 'workbench.project.tasks',
