@@ -393,6 +393,19 @@ function registerIPC() {
     return await graphBuilder.suggestEntityMerges(options)
   })
 
+  // ADR-007：主题社区（纯本地算法，不需要模型）
+  handle('graph:communities', async (_, options?: { limit?: number }) => {
+    return await graphBuilder.getCommunities(options)
+  })
+
+  handle('graph:detectCommunities', async (_, options?: { minSize?: number; maxRounds?: number }) => {
+    return await graphBuilder.detectCommunities(options)
+  })
+
+  handle('graph:entityCommunity', async (_, entityId: number, limit?: number) => {
+    return await graphBuilder.getEntityCommunity(entityId, limit)
+  })
+
   handle('graph:listAliases', async (_, entityId?: number) => {
     return await graphBuilder.listAliases(entityId)
   })

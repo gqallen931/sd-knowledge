@@ -23,6 +23,8 @@ import { buildDetachedBuiltinParsers } from './plugins/builtin/parsers'
 import { builtinParserManifest } from './plugins/builtin/manifests'
 import { DEFAULT_ONNX_THREADS, applyModelEnv, applyOnnxThreadOptions, clampInt, importModule } from './plugins/builtin/transformersEnv'
 import { toEmbeddingVectors } from './plugins/builtin/embeddingVectors'
+import { PREDICATE_TRIGGERS, extractPredicateEdges } from './predicateRules'
+import { buildCompoundTerms } from './compoundTerms'
 
 /**
  * 环境适配、线程注入、向量解码与整数收敛都已搬到 `plugins/builtin/`（内建插件与引擎共用，
@@ -32,6 +34,20 @@ export { DEFAULT_ONNX_THREADS, applyModelEnv, toEmbeddingVectors }
 
 /** 默认嵌入模型（未显式指定时的兜底）：仍由注册表给出，不写死模型名 */
 const DEFAULT_EMBEDDING_ID = 'Xenova/bge-small-zh-v1.5'
+
+/**
+ * 关键词实体化的停用词（ADR-007）。
+ *
+ * 只挡高频虚词与泛化动词：像「系统」「数据」这类在各领域都成立的词不在此列，
+ * 它们作为概念实体反而有助于把文档连起来。
+ */
+const KEYWORD_STOPWORDS = new Set([
+  '我们', '你们', '他们', '它们', '这个', '那个', '这些', '那些', '一个', '一种',
+  '可以', '可能', '需要', '应该', '已经', '正在', '进行', '通过', '由于', '因为',
+  '所以', '但是', '然而', '以及', '或者', '如果', '虽然', '并且', '而且', '不是',
+  '没有', '什么', '怎么', '如何', '这里', '那里', '目前', '同时', '另外', '其中',
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'has', 'are', 'was',
+])
 
 let nerPipelineFn: any = null
 let nerModelLoaded = ''
@@ -302,8 +318,24 @@ export class ProcessingEngine {
         perf?.skip('ner_deep')
       }
       const keywords = measureSync(perf, 'keywords', () => this.extractKeywords(text))
+      // ADR-007 的前置条件：规则 NER 只认人名/机构/地名，任意名词（「向量检索」）进不了图谱，
+      // 语义边就无从谈起。把 TF-IDF 关键词按 concept 补进实体集，门槛见 keywordEntities。
+      const keywordExtra = this.keywordEntities(keywords, text)
+      if (keywordExtra.length) {
+        const seen = new Set(entities.map(e => `${e.type}|${e.name}`))
+        for (const extra of keywordExtra) {
+          const key = `${extra.type}|${extra.name}`
+          if (seen.has(key) || entities.length >= 60) continue
+          entities.push(extra)
+          seen.add(key)
+        }
+      }
+      // 语义边（ADR-007）：纯规则抽取，不依赖任何模型。计算放在写库之前，
+      // 落库与实体链接共用同一个事务，避免出现「实体有了、边没有」的中间态。
+      const predicateEdges = measureSync(perf, 'predicate', () => extractPredicateEdges(text, entities))
       perf?.setField('entities', entities.length)
       perf?.setField('tags', keywords.length)
+      perf?.setField('predicate_candidates', predicateEdges.length)
 
       measureSync(perf, 'db_document', () => {
         // 缩略图与解析结果同一次 UPDATE 落库，避免二次写库：
@@ -341,15 +373,41 @@ export class ProcessingEngine {
           INSERT OR IGNORE INTO relationships (source_type, source_id, target_type, target_id, relation_type)
           VALUES ('document', ?, 'entity', ?, ?)
         `)
+        // 规则边按文档精确重算：删掉本文档上次产出的边再重建。
+        // 人工创建的边 source_doc_id 为 NULL，天然不会被这条语句命中。
+        const clearPredicateEdges = this.db.prepare('DELETE FROM relationships WHERE source_doc_id = ?')
+        const insertPredicateEdge = this.db.prepare(`
+          INSERT INTO relationships (
+            source_type, source_id, target_type, target_id, relation_type, weight, metadata, source_doc_id
+          ) VALUES ('entity', ?, 'entity', ?, ?, ?, ?, ?)
+        `)
         let created = 0
+        let predicateWritten = 0
         this.db.transaction(() => {
+          clearPredicateEdges.run(docId)
           for (const entity of entities) {
             if (insertEntity.run(entity.name, entity.type, entity.description || '').changes > 0) created++
             const ent = selectEntity.get(entity.name, entity.type) as any
             if (ent) linkEntity.run(docId, ent.id, entity.relation || 'CONTAINS')
           }
+          for (const edge of predicateEdges) {
+            const source = selectEntity.get(edge.sourceName, edge.sourceType) as any
+            const target = selectEntity.get(edge.targetName, edge.targetType) as any
+            // 实体可能在上一步被别名归一或未落库，跳过而不是凭空补一个实体
+            if (!source || !target || source.id === target.id) continue
+            insertPredicateEdge.run(
+              source.id,
+              target.id,
+              edge.relation,
+              edge.weight,
+              JSON.stringify({ origin: 'predicate-rule', evidence: edge.evidence, sentence: edge.sentence }),
+              docId,
+            )
+            predicateWritten++
+          }
         })
         perf?.setField('entities_new', created)
+        perf?.setField('predicate_edges', predicateWritten)
       })
 
       measureSync(perf, 'db_tags', () => this.syncDocumentTags(docId, keywords, perf))
@@ -944,7 +1002,16 @@ export class ProcessingEngine {
    */
   extractQueryEntities(query: string): Array<{ name: string; type: string }> {
     try {
-      return this.extractEntities(query).map(e => ({ name: e.name, type: e.type }))
+      const entities = this.extractEntities(query)
+      const seen = new Set(entities.map(e => `${e.type}|${e.name}`))
+      // 查询里的概念词同样要能映射到 concept 实体，否则社区亲和度恒为 0
+      for (const extra of this.keywordEntities(this.extractKeywords(query), query, 1)) {
+        const key = `${extra.type}|${extra.name}`
+        if (seen.has(key)) continue
+        entities.push(extra)
+        seen.add(key)
+      }
+      return entities.map(e => ({ name: e.name, type: e.type }))
     } catch {
       return []
     }
@@ -1075,6 +1142,54 @@ export class ProcessingEngine {
       results.push({ name, type: mapped.type, relation: mapped.relation, description: '深度NER识别' })
     }
     return results.slice(0, 50)
+  }
+
+  /**
+   * 把关键词转成 concept 实体（ADR-007 的前置条件）。
+   *
+   * 门槛刻意收紧：长度 2~20、非纯数字/日期、非停用词、在正文里至少出现 `minOccurrences` 次。
+   * 单次出现的 jieba 关键词大多是「偶然提及」，都做成实体会把图谱稀释成关键词云。
+   * 查询侧传 1：查询词天然只出现一次，不放宽就永远映射不到概念实体。
+   */
+  private keywordEntities(
+    keywords: string[],
+    text: string,
+    minOccurrences: number = 2,
+  ): Array<{ name: string; type: string; relation: string; description?: string }> {
+    const result: Array<{ name: string; type: string; relation: string; description?: string }> = []
+    const lowered = text.toLowerCase()
+    const blocked = (term: string) =>
+      KEYWORD_STOPWORDS.has(term.toLowerCase()) || PREDICATE_TRIGGERS.has(term.toLowerCase())
+    const seen = new Set<string>()
+
+    // 1) 复合词先行（中心词判定，见 compoundTerms）：分词把「向量索引」切成「向量 + 索引」，
+    //    合并后长名优先的实体定位会让整体压过碎片，语义边的端点才不会落在修饰语上。
+    for (const compound of buildCompoundTerms(keywords, text, { minOccurrences, isBlocked: blocked })) {
+      if (seen.has(compound.name)) continue
+      seen.add(compound.name)
+      result.push({
+        name: compound.name,
+        type: 'concept',
+        relation: 'MENTIONS_KEYWORD',
+        description: `复合词（中心词：${compound.head}）`,
+      })
+    }
+
+    // 2) 原有单词关键词
+    for (const raw of keywords) {
+      const name = String(raw || '').trim()
+      if (name.length < 2 || name.length > 20) continue
+      if (/^[\d\s.\-/:年月日]+$/.test(name)) continue
+      if (KEYWORD_STOPWORDS.has(name.toLowerCase())) continue
+      // 动词不是实体：谓词触发词一旦被实体化，`A 依赖 B` 里的「依赖」会把两侧切成空白，
+      // 抽取阶段反而看不到谓词（真实语料里这是首要的漏抽原因）
+      if (PREDICATE_TRIGGERS.has(name.toLowerCase())) continue
+      if (lowered.split(name.toLowerCase()).length - 1 < minOccurrences) continue
+      if (seen.has(name)) continue
+      seen.add(name)
+      result.push({ name, type: 'concept', relation: 'MENTIONS_KEYWORD' })
+    }
+    return result.slice(0, 18)
   }
 
   private extractKeywords(text: string): string[] {

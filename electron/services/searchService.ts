@@ -39,7 +39,7 @@ const RRF_WEIGHT_DEFAULT = 1
 const RRF_WEIGHT_MIN = 0
 const RRF_WEIGHT_MAX = 3
 /** 规则重排默认系数（§5.3.3，全部 ∈ [0,1]） */
-const RERANK_DEFAULT = { alpha: 0.15, beta: 0.10, gamma: 0.05, delta: 0.05, epsilon: 0.20 }
+const RERANK_DEFAULT = { alpha: 0.15, beta: 0.10, gamma: 0.05, delta: 0.05, epsilon: 0.20, zeta: 0.05 }
 /** 时间权重上限：防止「最近导入的总是赢」把相关性挤掉（规则重排最常见的失败模式） */
 const RERANK_ALPHA_MAX = 0.2
 /** recency 的半衰期（天） */
@@ -59,6 +59,8 @@ interface RerankCoefs {
   gamma: number
   delta: number
   epsilon: number
+  /** 社区亲和度（ADR-007）：查询实体所在社区在候选文档中的覆盖 */
+  zeta: number
 }
 
 /**
@@ -314,6 +316,10 @@ export class SearchService {
     const docEntities = this.entitiesForDocuments(docIds)
     const queryTypeTokens = this.queryTypeTokens(text, docIds)
     const lowered = text.toLowerCase()
+    // ADR-007：社区亲和度。查询实体所属社区若在候选文档里被多次命中，说明文档谈的是
+    // 同一簇主题，而不只是碰巧出现同一个词。社区为空（未跑检测）时该项恒为 0，行为与旧版一致。
+    const communityHits = this.communityHits(docIds, queryEntities.map(entity => entity.name))
+    const communityScale = Math.max(1, queryEntities.length)
 
     const ranked = Array.from(fused.values()).map((entry) => {
       const recency = this.recency(entry.doc.imported_at)
@@ -321,12 +327,14 @@ export class SearchService {
       const typeMatch = queryTypeTokens.size && queryTypeTokens.has(String(entry.doc.file_type || '').toLowerCase()) ? 1 : 0
       const titleHit = this.titleHit(entry.doc, lowered) ? 1 : 0
       const entityOverlap = this.entityOverlap(queryEntities, docEntities.get(Number(entry.doc.id)) || [])
+      const communityAffinity = Math.min(1, (communityHits.get(Number(entry.doc.id)) || 0) / communityScale)
       const factor = 1
         + coefs.alpha * recency
         + coefs.beta * scopeMatch
         + coefs.gamma * typeMatch
         + coefs.delta * entityOverlap
         + coefs.epsilon * titleHit
+        + coefs.zeta * communityAffinity
       return {
         entry,
         parts: {
@@ -336,6 +344,7 @@ export class SearchService {
           semantic_score: entry.semanticScore,
           recency, scope_match: scopeMatch, type_match: typeMatch,
           entity_overlap: entityOverlap, title_hit: titleHit,
+          community_affinity: communityAffinity,
         },
         final: entry.rrf * factor,
       }
@@ -443,7 +452,7 @@ export class SearchService {
   /**
    * 规则重排系数（设置项可覆盖）。
    *
-   * 两条硬约束（§5.3.3）：α ≤ 0.2（时间不得主导相关性）；α+β+γ+δ+ε ≤ 1.0（整体加权不超过 2 倍）。
+   * 两条硬约束（§5.3.3）：α ≤ 0.2（时间不得主导相关性）；α+β+γ+δ+ε+ζ ≤ 1.0（整体加权不超过 2 倍）。
    * 越界时按比例缩小，而不是静默接受一个「配置写错但看起来能跑」的组合。
    */
   private readRerankCoefs(settings: Record<string, string>): RerankCoefs {
@@ -453,15 +462,57 @@ export class SearchService {
       gamma: clampNumber(settings['search.rerank.gamma'], RERANK_DEFAULT.gamma, 0, 1),
       delta: clampNumber(settings['search.rerank.delta'], RERANK_DEFAULT.delta, 0, 1),
       epsilon: clampNumber(settings['search.rerank.epsilon'], RERANK_DEFAULT.epsilon, 0, 1),
+      zeta: clampNumber(settings['search.rerank.zeta'], RERANK_DEFAULT.zeta, 0, 1),
     }
     coefs.alpha = Math.min(coefs.alpha, RERANK_ALPHA_MAX)
-    const sum = coefs.alpha + coefs.beta + coefs.gamma + coefs.delta + coefs.epsilon
+    const sum = coefs.alpha + coefs.beta + coefs.gamma + coefs.delta + coefs.epsilon + coefs.zeta
     if (sum > 1) {
       const scale = 1 / sum
       coefs.alpha *= scale; coefs.beta *= scale; coefs.gamma *= scale
-      coefs.delta *= scale; coefs.epsilon *= scale
+      coefs.delta *= scale; coefs.epsilon *= scale; coefs.zeta *= scale
     }
     return coefs
+  }
+
+  /**
+   * 候选文档在「查询实体所属社区」里的实体命中数（ADR-007）。
+   *
+   * 只走两步索引查询：先把查询实体映射成社区，再按 `document → entity` 边统计每个候选文档
+   * 落在这些社区里的实体个数。社区表为空时两条查询都返回空，重排行为与引入社区前完全一致。
+   */
+  private communityHits(documentIds: number[], entityNames: string[]): Map<number, number> {
+    const hits = new Map<number, number>()
+    if (!documentIds.length || !entityNames.length) return hits
+
+    const names = Array.from(new Set(
+      entityNames.map(name => String(name || '').trim()).filter(name => name.length > 0),
+    )).slice(0, 32)
+    if (!names.length) return hits
+
+    const namePlaceholders = names.map(() => '?').join(',')
+    const communityRows = this.db.prepare(`
+      SELECT DISTINCT ec.community_id AS community_id
+      FROM entity_communities ec
+      JOIN entities e ON e.id = ec.entity_id
+      WHERE e.name IN (${namePlaceholders})
+    `).all(...names) as any[]
+    const communityIds = Array.from(new Set(communityRows.map(row => Number(row.community_id))))
+      .filter(id => Number.isFinite(id))
+    if (!communityIds.length) return hits
+
+    const docPlaceholders = documentIds.map(() => '?').join(',')
+    const communityPlaceholders = communityIds.map(() => '?').join(',')
+    const rows = this.db.prepare(`
+      SELECT r.source_id AS doc_id, COUNT(DISTINCT r.target_id) AS hit
+      FROM relationships r
+      JOIN entity_communities ec ON ec.entity_id = r.target_id
+      WHERE r.source_type = 'document' AND r.target_type = 'entity'
+        AND r.source_id IN (${docPlaceholders})
+        AND ec.community_id IN (${communityPlaceholders})
+      GROUP BY r.source_id
+    `).all(...documentIds, ...communityIds) as any[]
+    for (const row of rows) hits.set(Number(row.doc_id), Number(row.hit) || 0)
+    return hits
   }
 
   /** 时间权重：`1 / (1 + days/30)`，30 天半衰 */

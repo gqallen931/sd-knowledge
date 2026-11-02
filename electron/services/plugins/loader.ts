@@ -30,7 +30,7 @@ export interface PluginLoadReport {
   rejected: PluginLoadRejection[]
 }
 
-const PLUGIN_KINDS: PluginKind[] = ['parser', 'embedding', 'rerank', 'method', 'panel']
+const PLUGIN_KINDS: PluginKind[] = ['parser', 'embedding', 'llm', 'rerank', 'method', 'panel']
 
 function isPluginKind(value: unknown): value is PluginKind {
   return typeof value === 'string' && (PLUGIN_KINDS as string[]).includes(value)
@@ -98,11 +98,22 @@ export function validateManifest(raw: any, manifest: PluginManifest): string | n
   if (manifest.kind === 'parser' && manifest.permissions?.fsRead !== true) {
     return '解析器插件必须声明 permissions.fsRead=true（否则无法读取用户文件，拒绝加载）'
   }
-  if (manifest.permissions?.net === true && !(manifest.permissions.modelDownload || []).length) {
+  // 模型接入插件（ADR-006）的端点由用户配置、由宿主的出口守卫按端点校验，清单里写不出固定域名，
+  // 因此不套用「modelDownload 白名单」这条（它针对的是模型文件下载地址）。
+  const needsDownloadWhitelist = manifest.permissions?.net === true && manifest.kind !== 'llm'
+  if (needsDownloadWhitelist && !(manifest.permissions.modelDownload || []).length) {
     return 'permissions.net=true 时必须声明 modelDownload 白名单（拒绝「允许任意联网」）'
   }
   if (manifest.kind === 'parser' && !(manifest.capabilities?.extensions || []).length) {
     return 'parser 类插件必须声明 capabilities.extensions（能处理的扩展名）'
+  }
+  if (manifest.kind === 'llm') {
+    if (manifest.permissions?.net !== true) {
+      return '模型接入插件必须声明 permissions.net=true（它要自己发起模型请求，未声明即视为隐瞒联网）'
+    }
+    if (!(manifest.capabilities?.providerTypes || []).length) {
+      return '模型接入插件必须声明 capabilities.providerTypes（该插件覆盖的 provider 类型，如 byo-openai）'
+    }
   }
   return null
 }
@@ -224,7 +235,60 @@ export class PluginLoader {
 
     if (manifest.kind === 'parser') return this.registerParser(dir, manifest, produced, report, reject)
     if (manifest.kind === 'embedding') return this.registerEmbedding(dir, manifest, produced, report, reject)
-    reject(manifest, kind, `kind=${manifest.kind} 的扩展点尚未实现（ADR-005 D22：首批只交付解析器与嵌入模型）`)
+    if (manifest.kind === 'llm') return this.registerLlmPlugin(dir, manifest, produced, report, reject)
+    reject(manifest, kind, `kind=${manifest.kind} 的扩展点尚未实现（ADR-005 D22：首批交付解析器与嵌入模型，ADR-006 追加模型接入）`)
+  }
+
+  /**
+   * 模型接入插件（ADR-006）。
+   *
+   * 只校验「能否把配置变成 provider」：`createProvider(config)` 必须同步返回实现，
+   * 不在这里发起任何请求——登记成功不等于已接入模型，网关仍然只在用户配置了 provider 时才装载。
+   */
+  private registerLlmPlugin(
+    dir: string,
+    manifest: PluginManifest,
+    produced: any,
+    report: PluginLoadReport,
+    reject: (manifest: PluginManifest, kind: PluginKind | 'unknown', reason: string) => void
+  ): void {
+    const plugin = produced?.llm
+    if (!plugin || typeof plugin.createProvider !== 'function') {
+      return reject(manifest, manifest.kind, 'activate(host) 未返回可用的 llm（需要 { llm: { kind, providerTypes, createProvider } }）')
+    }
+    const specs = Array.isArray(plugin.providerTypes) ? plugin.providerTypes : []
+    const providerTypes = specs
+      .filter((spec: any) => spec && typeof spec.kind === 'string' && spec.kind.trim())
+      .map((spec: any) => ({
+        kind: String(spec.kind).trim(),
+        label: String(spec.label || spec.kind),
+        requiresKey: spec.requiresKey !== false,
+        available: spec.available !== false,
+        defaultBaseUrl: String(spec.defaultBaseUrl || ''),
+        note: String(spec.note || ''),
+      }))
+    if (!providerTypes.length) {
+      return reject(manifest, manifest.kind, 'llm 未声明任何 providerTypes（需要 [{ kind, label, ... }]）')
+    }
+    const declared = (manifest.capabilities?.providerTypes || []).map(String)
+    const undeclared = providerTypes.map((t: { kind: string }) => t.kind).filter((k: string) => !declared.includes(k))
+    if (undeclared.length) {
+      return reject(
+        manifest,
+        manifest.kind,
+        `llm 运行时声明的 provider 类型未写进 manifest.capabilities.providerTypes：${undeclared.join('、')}（设置页据此在装载前展示可选项）`
+      )
+    }
+
+    this.registry.registerLlm({
+      manifest: { ...manifest, capabilities: { ...manifest.capabilities, providerTypes: declared } },
+      llm: { kind: 'llm', providerTypes, createProvider: plugin.createProvider.bind(plugin) },
+      source: 'local',
+      path: dir,
+      loaded: true,
+      error: null,
+    })
+    report.loaded.push(manifest.id)
   }
 
   private registerParser(

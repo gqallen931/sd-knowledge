@@ -19,7 +19,7 @@
     "dev:web": "concurrently \"npm run dev:renderer\" \"npm run dev:web:api\"",
     "dev:web:api": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development SD_WEB_PORT=5174 node dist-electron/webEntry.js",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json",
-    "test": "npm run typecheck && node tests/integration.cjs && node tests/auth-flow.cjs && node tests/auth-web.cjs && node tests/saved-search.cjs && node tests/entity-alias.cjs && node tests/analytics-logs.cjs && node tests/audit-retention.cjs && node tests/schedule.cjs && node tests/export-snapshot.cjs",
+    "test": "npm run typecheck && node tests/lightrag-bridge.cjs && node tests/llm-gateway.cjs && node tests/llm-plugin-seam.cjs && node tests/integration.cjs && node tests/predicate-graph.cjs && node tests/auth-flow.cjs && node tests/auth-web.cjs && node tests/saved-search.cjs && node tests/entity-alias.cjs && node tests/analytics-logs.cjs && node tests/audit-retention.cjs && node tests/schedule.cjs && node tests/export-snapshot.cjs",
     "test:auth": "npm run typecheck && node tests/auth-flow.cjs && node tests/auth-web.cjs",
     "eval": "tsc -p electron/tsconfig.json && node tests/eval/run.cjs",
     "eval:baseline": "tsc -p electron/tsconfig.json && node tests/eval/run.cjs --update-baseline",

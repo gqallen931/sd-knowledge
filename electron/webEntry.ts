@@ -79,6 +79,7 @@ async function main() {
     'folder.cleanup': (id?: number) => r.folderSources.cleanupUnavailable(id),
     'folder.listFolders': (sourceId?: number) => r.folderSources.listFolders(sourceId ?? null),
     'queue.status': () => r.queueStatus(),
+    'lightrag.status': () => r.lightRag.status(),
     'project.list': () => r.files.listProjects(),
     'project.create': (n: string, d: string, c: string) => {
       if (!n?.trim()) throw new Error('项目名称不能为空')
@@ -111,6 +112,10 @@ async function main() {
     'graph.searchNodes': (q, l) => r.graph.searchNodes(q, l),
     'graph.searchEntities': (q, l) => r.graph.searchEntities(q, l),
     'graph.suggestEntityMerges': o => r.graph.suggestEntityMerges(o),
+    // ADR-007：谓词边 + 主题社区（纯本地算法，不依赖模型）
+    'graph.communities': (o?: any) => r.graph.getCommunities(o || {}),
+    'graph.detectCommunities': (o?: any) => r.graph.detectCommunities(o || {}),
+    'graph.entityCommunity': (id: number, l?: number) => r.graph.getEntityCommunity(Number(id), l),
     // S2-08：实体别名 / 合并历史 / 忽略记忆
     'graph.listAliases': (id?: number) => r.graph.listAliases(id),
     'graph.addAlias': (id: number, alias: string) => r.graph.addAlias(id, alias),

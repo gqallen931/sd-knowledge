@@ -71,7 +71,7 @@ if (!window.sd) {
     dashboard: group('dashboard', ['stats', 'recent']),
     queue: group('queue', ['status']),
     project: group('project', ['list', 'create', 'update', 'remove', 'assign', 'assignMany']),
-    graph: group('graph', ['nodes', 'edges', 'entity', 'stats', 'addRelationship', 'deleteRelationship', 'mergeEntities', 'mergeEntitiesBatch', 'renameEntity', 'batchRenameEntities', 'searchNodes', 'searchEntities', 'suggestEntityMerges', 'overview', 'bridges', 'entities', 'listAliases', 'addAlias', 'removeAlias', 'listMergeHistory', 'ignoreMergeSuggestion', 'listIgnoredMergePairs']),
+    graph: group('graph', ['nodes', 'edges', 'entity', 'stats', 'addRelationship', 'deleteRelationship', 'mergeEntities', 'mergeEntitiesBatch', 'renameEntity', 'batchRenameEntities', 'searchNodes', 'searchEntities', 'suggestEntityMerges', 'communities', 'detectCommunities', 'entityCommunity', 'overview', 'bridges', 'entities', 'listAliases', 'addAlias', 'removeAlias', 'listMergeHistory', 'ignoreMergeSuggestion', 'listIgnoredMergePairs']),
     search: group('search', ['fulltext', 'semantic', 'hybrid', 'savedList', 'savedCreate', 'savedRemove', 'savedRerun']),
     settings: group('settings', ['get', 'update']),
     security: { ...group('security', ['status', 'setup', 'verify']), apiKeys: group('security.apiKeys', ['list', 'create', 'revoke']) },

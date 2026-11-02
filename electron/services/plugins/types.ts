@@ -5,14 +5,18 @@
  * 按 D25，扩展 API 只能加字段、不能改语义；破坏性变更必须提升 `apiVersion`。
  */
 import type { PerfRecorder } from '../perfLogger'
+import type { LlmProvider } from '../gateway/types'
 
 /** 宿主当前实现的扩展 API 版本；manifest 声明与之不匹配即拒绝加载（D25 兼容表） */
 export const HOST_API_VERSION = 1
 /** 宿主兼容的扩展 API 版本清单（当前只支持 1，不做「尽力兼容」的猜测） */
 export const SUPPORTED_API_VERSIONS: readonly number[] = [HOST_API_VERSION]
 
-/** 扩展点类型：首批实现 parser / embedding，其余三类只放类型（D22 分两批） */
-export type PluginKind = 'parser' | 'embedding' | 'rerank' | 'method' | 'panel'
+/**
+ * 扩展点类型：首批实现 parser / embedding；`llm` 是 ADR-006 新增的模型接入扩展点
+ * （只放契约与注册表，宿主不内置任何厂商实现）；rerank / method / panel 仍只放类型（D22 分两批）。
+ */
+export type PluginKind = 'parser' | 'embedding' | 'llm' | 'rerank' | 'method' | 'panel'
 /** 插件声明的调度方式（D24：宿主按声明派到 worker 池，本轮不引入进程隔离） */
 export type PluginRuntime = 'inline' | 'worker'
 /** 插件来源：内建（编译进宿主，不可卸载）/ 本地（`<Data>/plugins` 下的目录） */
@@ -44,6 +48,8 @@ export interface PluginCapabilities {
   modelId?: string
   /** embedding：向量维度（用于设置页展示；实际维度以推理输出为准） */
   dimension?: number
+  /** llm：该插件声明的 provider 类型（与 LlmPlugin.providerTypes 对应，便于设置页不装载也能展示） */
+  providerTypes?: string[]
   [key: string]: unknown
 }
 
@@ -137,6 +143,55 @@ export interface EmbeddingPlugin {
    * 缺失时模型加载成本会落在首次 `embed` 里。
    */
   ensureReady?(): Promise<void>
+}
+
+/**
+ * 模型 provider 类型声明（ADR-006）。
+ *
+ * 宿主不再内置「provider 类型清单」：设置页可选哪些类型，完全由已启用的 `llm` 插件声明，
+ * 插件停用则该类型从清单消失——这就是「模型接入是插件扩展点」的可见形态。
+ */
+export interface LlmProviderTypeSpec {
+  /** provider 类型标识，写入 llm_providers.kind（如 `byo-openai` / `local-openai`） */
+  kind: string
+  /** 设置页显示名 */
+  label: string
+  /** 是否必须填密钥（本地端点=false，自带密钥=true） */
+  requiresKey: boolean
+  /** 该类型当前是否可用（占位类型可置 false，UI 上禁用） */
+  available: boolean
+  /** 默认端点，供设置页预填 */
+  defaultBaseUrl: string
+  /** 说明文案，设置页直接展示 */
+  note: string
+}
+
+/** `llm` 插件创建 provider 时的入参（密钥已由宿主解密，仅存在于主进程内存） */
+export interface LlmPluginConfig {
+  providerId: string
+  /** LlmProviderTypeSpec.kind */
+  kind: string
+  label: string
+  baseUrl: string
+  model: string
+  apiKey: string | null
+  timeoutMs: number
+  maxRetries: number
+  temperature?: number
+  maxTokens?: number
+}
+
+/**
+ * ③ 模型接入插件（ADR-006）。
+ *
+ * 约束：**默认关闭**——没有启用任何 `llm` 插件时网关不注册 provider，问答等功能走降级路径；
+ * 宿主不内置任何厂商 SDK / 密钥 / 端点，插件只负责「把配置变成 LlmProvider」。
+ */
+export interface LlmPlugin {
+  kind: 'llm'
+  /** 该插件覆盖的 provider 类型（一个插件可以同时服务多种传输协议） */
+  providerTypes: LlmProviderTypeSpec[]
+  createProvider(config: LlmPluginConfig): LlmProvider
 }
 
 /**

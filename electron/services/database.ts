@@ -88,6 +88,7 @@ export default class DatabaseService {
         relation_type TEXT NOT NULL,
         weight REAL DEFAULT 1.0,
         metadata TEXT,
+        source_doc_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -363,6 +364,10 @@ export default class DatabaseService {
       'rate_limit': '100',
       'security_enabled': 'false',
       'perf_log_enabled': 'false',
+      // LightRAG：仅本机桥接服务。默认关闭，避免在未完成模型配置前阻塞或传输任何文档内容。
+      'lightrag_enabled': 'false',
+      'lightrag_endpoint': 'http://127.0.0.1:9621',
+      'lightrag_timeout_ms': '5000',
     }
 
     // updated_at 由语句显式写入：该列是迁移期补出来的，没有 DEFAULT CURRENT_TIMESTAMP

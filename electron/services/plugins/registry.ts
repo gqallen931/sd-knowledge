@@ -11,6 +11,8 @@ import { PerfRecorder } from '../perfLogger'
 import {
   ChunkAnchor,
   EmbeddingPlugin,
+  LlmPlugin,
+  LlmProviderTypeSpec,
   ParserParseResult,
   ParserPlugin,
   PluginCapabilities,
@@ -22,11 +24,12 @@ import {
   PluginStatus,
 } from './types'
 
-/** 注册入参：manifest 是唯一必需的声明，实现按 kind 二选一 */
+/** 注册入参：manifest 是唯一必需的声明，实现按 kind 三选一 */
 export interface PluginRegisterInput {
   manifest: PluginManifest
   parser?: ParserPlugin
   embedding?: EmbeddingPlugin
+  llm?: LlmPlugin
   /** 解析器：扩展名 → documents.file_type（缺省时取扩展名自身） */
   fileTypes?: Record<string, string>
   source?: PluginSource
@@ -42,6 +45,7 @@ interface PluginEntry {
   kind: PluginKind | 'unknown'
   parser?: ParserPlugin
   embedding?: EmbeddingPlugin
+  llm?: LlmPlugin
   fileTypes: Record<string, string>
   source: PluginSource
   path?: string
@@ -58,6 +62,19 @@ export interface ParserRegisterInput extends Omit<PluginRegisterInput, 'embeddin
 /** 嵌入模型注册入参 */
 export interface EmbeddingRegisterInput extends Omit<PluginRegisterInput, 'embedding' | 'parser'> {
   embedding: EmbeddingPlugin
+}
+
+/** 模型接入注册入参（ADR-006） */
+export interface LlmRegisterInput extends Omit<PluginRegisterInput, 'embedding' | 'parser' | 'llm'> {
+  llm: LlmPlugin
+}
+
+/** 模型 provider 类型解析结果：带上 `enabled`，调用方据此说清「是没有这个类型，还是插件被停用」 */
+export interface LlmResolution {
+  id: string
+  name: string
+  enabled: boolean
+  plugin?: LlmPlugin
 }
 
 /** 解析器查询结果：带上 `enabled`，让调用方能区分「没有这个格式」与「有这个格式但插件被停用」 */
@@ -88,6 +105,7 @@ export class PluginRegistry {
       kind: input.kind ?? input.manifest.kind,
       parser: input.parser,
       embedding: input.embedding,
+      llm: input.llm,
       fileTypes: input.fileTypes || this.deriveFileTypes(input.manifest),
       source: input.source || (input.manifest.builtin ? 'builtin' : 'local'),
       path: input.path,
@@ -108,6 +126,11 @@ export class PluginRegistry {
 
   /** 注册嵌入模型插件（内建装配与本地装载走同一入口） */
   registerEmbedding(input: EmbeddingRegisterInput): PluginStatus {
+    return this.register(input)
+  }
+
+  /** 注册模型接入插件（ADR-006；内建适配器与本地插件走同一入口） */
+  registerLlm(input: LlmRegisterInput): PluginStatus {
     return this.register(input)
   }
 
@@ -296,6 +319,65 @@ export class PluginRegistry {
     if (!entry || entry.kind !== 'embedding' || !entry.enabled || !entry.loaded) return undefined
     return entry.embedding
   }
+
+  /**
+   * 按 provider 类型找模型接入插件（ADR-006）。
+   *
+   * 同 `resolveParser`：**不按 enabled 过滤**，停用的插件也要能被找到，
+   * 这样报错才能说清「不是没这个类型，而是 sd.llm.xxx 被停用了」。
+   * `available: false` 的占位类型同样参与解析，由调用方按状态拒绝。
+   */
+  resolveLlm(providerType: string): LlmResolution | null {
+    const type = String(providerType || '')
+    if (!type) return null
+    let fallback: LlmResolution | null = null
+    for (const entry of this.entries.values()) {
+      if (entry.kind !== 'llm' || !entry.llm) continue
+      if (!entry.llm.providerTypes.some(t => t.kind === type)) continue
+      const hit: LlmResolution = {
+        id: entry.manifest.id,
+        name: entry.manifest.name,
+        enabled: entry.enabled,
+        plugin: entry.llm,
+      }
+      // 同一个类型可能被多个插件声明（例如本地插件接管内建适配器）：
+      // 优先用**已启用**的那个，停用的只留作报错说明。
+      if (entry.enabled) return hit
+      if (!fallback) fallback = hit
+    }
+    return fallback
+  }
+
+  /**
+   * 设置页可选的模型 provider 类型清单（ADR-006）。
+   *
+   * 只统计**已启用且装载成功**的 `llm` 插件；一个类型被多个插件声明时取先注册者。
+   * 没有任何可用插件时返回空数组——这正是「模型接入默认关闭」的可见结果。
+   */
+  llmProviderTypes(): LlmProviderTypeSpec[] {
+    const out: LlmProviderTypeSpec[] = []
+    const seen = new Set<string>()
+    for (const entry of this.entries.values()) {
+      if (entry.kind !== 'llm' || !entry.enabled || !entry.loaded || !entry.llm) continue
+      for (const spec of entry.llm.providerTypes) {
+        if (seen.has(spec.kind)) continue
+        seen.add(spec.kind)
+        out.push(spec)
+      }
+    }
+    return out
+  }
+
+  /** 已启用的模型接入插件（诊断 / 设置页展示用） */
+  llmPlugins(): Array<{ id: string; name: string; plugin: LlmPlugin }> {
+    const out: Array<{ id: string; name: string; plugin: LlmPlugin }> = []
+    for (const entry of this.entries.values()) {
+      if (entry.kind === 'llm' && entry.enabled && entry.loaded && entry.llm) {
+        out.push({ id: entry.manifest.id, name: entry.manifest.name, plugin: entry.llm })
+      }
+    }
+    return out
+  }
 }
 
 /** 进程内唯一注册表：宿主服务层（ProcessingEngine / FileService / RPC 方法表）共用同一个实例 */
@@ -317,5 +399,8 @@ export function normalizeCapabilities(capabilities?: PluginCapabilities): Plugin
     ...(capabilities?.fileTypes ? { fileTypes: capabilities.fileTypes } : {}),
     ...(capabilities?.modelId ? { modelId: String(capabilities.modelId) } : {}),
     ...(capabilities?.dimension != null ? { dimension: Number(capabilities.dimension) } : {}),
+    ...(Array.isArray(capabilities?.providerTypes)
+      ? { providerTypes: capabilities!.providerTypes!.map(String) }
+      : {}),
   }
 }

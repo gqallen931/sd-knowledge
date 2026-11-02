@@ -5,6 +5,8 @@ import { LlmGateway } from './llmGateway'
 import { OpenAiCompatibleProvider } from './openaiProvider'
 import { KeyVault, maskHint } from './keyVault'
 import { createEgressGuard, EGRESS_SCOPE_LABELS, EGRESS_SCOPE_MODES, normalizeEgressMode, readEgressPolicy } from './egress'
+import { pluginRegistry } from '../plugins/registry'
+import { builtinLlmManifest } from '../plugins/builtin/manifests'
 
 /**
  * LLM 服务（S1-01，ADR-004）。
@@ -63,32 +65,95 @@ export interface LlmSaveInput {
   egress_scope?: string
 }
 
-const PROVIDER_TYPES: LlmProviderType[] = [
-  {
-    kind: 'byo-openai',
-    label: '自带密钥（OpenAI 兼容）',
-    requires_key: true,
-    available: true,
-    default_base_url: 'https://api.openai.com/v1',
-    note: '填写你自己的 API Key 与模型名；请求直接发往该端点，密钥只保存在本机、只在本进程解密。',
-  },
-  {
-    kind: 'local-openai',
-    label: '本地端点（OpenAI 兼容）',
-    requires_key: false,
-    available: true,
-    default_base_url: 'http://127.0.0.1:11434/v1',
-    note: '指向本机或内网的 Ollama / vLLM / LM Studio 等 OpenAI 兼容服务；通常无需密钥，内容不出域。',
-  },
-  {
-    kind: 'hosted',
-    label: '托管模型',
-    requires_key: false,
-    available: false,
-    default_base_url: '',
-    note: '尚未提供：本轮只预留接口（ADR-004 决策 3），接入需先有服务端。',
-  },
-]
+/** 内建模型接入插件 id（ADR-006）：OpenAI 兼容协议的薄适配器，不带任何默认端点/密钥 */
+const BUILTIN_LLM_PLUGIN_ID = 'sd.llm.openai-compatible'
+
+/** 内建「托管模型」占位插件 id：available=false，只用于把「尚未提供」这件事也放进插件清单 */
+const BUILTIN_LLM_HOSTED_ID = 'sd.llm.hosted'
+
+/**
+ * 注册内建模型接入插件（ADR-006）。
+ *
+ * 与解析器/嵌入插件一样走 `pluginRegistry.registerLlm(...)`，因此：
+ * - 设置页的类型清单来自注册表，**停用插件即类型消失**；
+ * - 宿主自身不再持有 `PROVIDER_TYPES` 常量，也没有任何厂商 SDK / 默认密钥；
+ * - 这里只登记「怎么把配置变成 provider」，**不注册 provider、不联网**——默认即未接入。
+ */
+export function registerBuiltinLlmPlugins(): void {
+  const openAiTypes = [
+    {
+      kind: 'byo-openai',
+      label: '自带密钥（OpenAI 兼容）',
+      requiresKey: true,
+      available: true,
+      defaultBaseUrl: 'https://api.openai.com/v1',
+      note: '填写你自己的 API Key 与模型名；请求直接发往该端点，密钥只保存在本机、只在本进程解密。',
+    },
+    {
+      kind: 'local-openai',
+      label: '本地端点（OpenAI 兼容）',
+      requiresKey: false,
+      available: true,
+      defaultBaseUrl: 'http://127.0.0.1:11434/v1',
+      note: '指向本机或内网的 Ollama / vLLM / LM Studio 等 OpenAI 兼容服务；通常无需密钥，内容不出域。',
+    },
+  ]
+
+  pluginRegistry.registerLlm({
+    manifest: builtinLlmManifest({
+      id: BUILTIN_LLM_PLUGIN_ID,
+      name: 'OpenAI 兼容模型接入',
+      providerTypes: openAiTypes.map(t => t.kind),
+      description: '把用户配置的端点 / 模型名 / 密钥变成 LlmProvider（流式与非流式共用一套实现）；不含默认端点，未配置时不联网。',
+    }),
+    llm: {
+      kind: 'llm',
+      providerTypes: openAiTypes,
+      createProvider: (config) => new OpenAiCompatibleProvider({
+        id: config.providerId,
+        kind: config.kind as LlmProviderKind,
+        label: config.label,
+        baseUrl: config.baseUrl,
+        model: config.model,
+        apiKey: config.apiKey,
+        timeoutMs: config.timeoutMs,
+        maxRetries: config.maxRetries,
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
+      }),
+    },
+    source: 'builtin',
+  })
+
+  // 托管模型：仍然只有契约（ADR-004 决策 3），但「没有实现」这件事现在也以插件形态呈现，
+  // 用户能在设置页看到它是谁、为什么不可用，而不是一个硬编码在下拉里的幽灵选项。
+  pluginRegistry.registerLlm({
+    manifest: builtinLlmManifest({
+      id: BUILTIN_LLM_HOSTED_ID,
+      name: '托管模型（占位）',
+      providerTypes: ['hosted'],
+      description: '尚未提供：只预留接口（ADR-004 决策 3），接入需先有服务端；当前不会发起任何请求。',
+      net: false,
+    }),
+    llm: {
+      kind: 'llm',
+      providerTypes: [
+        {
+          kind: 'hosted',
+          label: '托管模型',
+          requiresKey: false,
+          available: false,
+          defaultBaseUrl: '',
+          note: '尚未提供：本轮只预留接口（ADR-004 决策 3），接入需先有服务端。',
+        },
+      ],
+      createProvider: () => {
+        throw new Error('托管模型尚未提供：本轮只预留接口（ADR-004 决策 3），请在设置中选择「自带密钥」或「本地端点」。')
+      },
+    },
+    source: 'builtin',
+  })
+}
 
 export class LlmService {
   private vault: KeyVault
@@ -97,6 +162,8 @@ export class LlmService {
     this.vault = new KeyVault(path.join(dataDir, '.keys', 'platform.key'))
     // 出域范围闸门 + 审计（S1-02）：默认最小档，超范围拒绝并留痕
     this.gateway.setEgressGuard(createEgressGuard(db))
+    // 模型接入是插件扩展点（ADR-006）：先有插件，才谈得上「接入模型」
+    registerBuiltinLlmPlugins()
     this.reload()
   }
 
@@ -105,9 +172,21 @@ export class LlmService {
     return this.gateway.status()
   }
 
-  /** 已注册的 provider 类型与内置默认（只读） */
+  /**
+   * 可选 provider 类型（只读）。
+   *
+   * 清单完全来自**已启用的 `llm` 插件**（ADR-006）：插件被停用 → 对应类型从设置页消失；
+   * 所有模型插件都停用 → 返回空数组，界面应当显示「模型接入已关闭」而不是给出一个选不了的选项。
+   */
   providers(): LlmProviderType[] {
-    return PROVIDER_TYPES.map(t => ({ ...t }))
+    return pluginRegistry.llmProviderTypes().map(spec => ({
+      kind: spec.kind as LlmProviderKind,
+      label: spec.label,
+      requires_key: spec.requiresKey,
+      available: spec.available,
+      default_base_url: spec.defaultBaseUrl,
+      note: spec.note,
+    }))
   }
 
   /** 已配置的 provider 列表（掩码，绝不回明文密钥） */
@@ -130,7 +209,11 @@ export class LlmService {
     if (!model) throw new Error('模型名不能为空')
 
     const existing = this.getRow(kind)
-    const template = PROVIDER_TYPES.find(t => t.kind === kind)!
+    // 标签模板同样来自插件：没有插件声明这个类型就不允许保存（否则会写进一条永远用不了的配置）
+    const template = this.providers().find(t => t.kind === kind)
+    if (!template) {
+      throw new Error(`模型接入插件未启用：当前没有已启用的插件声明 ${kind} 类型（可在 设置 → 扩展 中启用模型插件）`)
+    }
     const label = String(input.label || existing?.label || template.label).trim() || template.label
     // 出域范围：优先用本次传入的，否则沿用既有，再否则**最小档**（写错等于默认把库上云）
     const requestedScope = normalizeEgressMode(input.egress_scope)
@@ -315,11 +398,21 @@ export class LlmService {
     return this.gateway.stream(request, onChunk ?? (() => { /* 未提供回调：只回完整响应 */ }))
   }
 
-  /** 依据库中配置重建并注册「默认 provider」——配置变更 / 启动时调用 */
+  /**
+   * 依据库中配置重建并注册「默认 provider」——配置变更 / 启动时调用。
+   *
+   * **默认关闭**：没有配置行、或声明该类型的插件被停用，都只注册 `null`（网关进入「未配置」，
+   * 上层降级为纯检索），不抛错、不崩主进程。
+   */
   reload(): void {
     const row = this.resolveDefaultRow()
     if (!row) { this.gateway.register(null); return }
-    this.gateway.register(this.buildProvider(row))
+    try {
+      this.gateway.register(this.buildProvider(row))
+    } catch (error: any) {
+      console.warn(`[llm] provider ${row.provider_id} 装载失败，按「未接入模型」处理：${error?.message || error}`)
+      this.gateway.register(null)
+    }
   }
 
   private resolveDefaultRow(): any | null {
@@ -329,10 +422,28 @@ export class LlmService {
     return rows.find(r => r.provider_id === defaultId) || rows[0]
   }
 
+  /**
+   * 把一行配置交给**插件**变成 provider（ADR-006）。
+   *
+   * 宿主在这里不再认识任何具体协议：找不到插件 → 说清「缺少插件」；插件被停用 → 说清「插件已停用」；
+   * 插件标注类型不可用 → 直接拒绝。三种情况都是可读错误，而不是 `undefined.chat` 之类的崩溃。
+   */
   private buildProvider(row: any): LlmProvider {
-    return new OpenAiCompatibleProvider({
-      id: row.provider_id,
-      kind: normalizeKind(row.provider_id),
+    const kind = normalizeKind(row.provider_id)
+    const resolved = pluginRegistry.resolveLlm(kind)
+    if (!resolved) {
+      throw new Error(`模型接入插件缺失：没有任何插件声明 ${kind} 类型（模型接入是插件扩展点，可在 设置 → 扩展 中启用）`)
+    }
+    if (!resolved.enabled || !resolved.plugin) {
+      throw new Error(`模型接入插件「${resolved.name}」已停用，暂时无法使用 ${kind}（可在 设置 → 扩展 中启用）`)
+    }
+    const spec = resolved.plugin.providerTypes.find(t => t.kind === kind)
+    if (spec && spec.available === false) {
+      throw new Error(`${spec.label}尚未提供：${spec.note || '插件标注为不可用'}`)
+    }
+    return resolved.plugin.createProvider({
+      providerId: row.provider_id,
+      kind,
       label: row.label,
       baseUrl: row.base_url,
       model: row.model,

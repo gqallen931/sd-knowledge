@@ -53,6 +53,10 @@ export default function KnowledgeGraph() {
   const [folderPath, setFolderPath] = useState<string | null>(null)
   const [folders, setFolders] = useState<any[]>([])
   const [bridges, setBridges] = useState<any[]>([])
+  /** ADR-007：主题社区（实体—实体边上的标签传播结果） */
+  const [communities, setCommunities] = useState<any[]>([])
+  const [communityBusy, setCommunityBusy] = useState(false)
+  const [communityNote, setCommunityNote] = useState('')
   /** 截断/范围提示：把「你看到的不是全部」显式说出来，而不是静默丢弃 */
   const [scopeNote, setScopeNote] = useState('')
   /** L2：聚焦某个实体的邻域（客户端裁剪，不再查库） */
@@ -124,6 +128,12 @@ export default function KnowledgeGraph() {
     try {
       const s = await window.sd.graph.stats()
       setStats(s)
+      // 社区是独立一层结构，加载失败不应挡住主图（旧库没有社区表时就是空数组）
+      try {
+        setCommunities(await window.sd.graph.communities({ limit: 8 }))
+      } catch {
+        setCommunities([])
+      }
       if (level === 'global') {
         const ov: any = await window.sd.graph.overview()
         // 「未归入空间」节点没有 space_id，用自身 id（'unassigned'）入图，避免 id 为 null
@@ -166,6 +176,30 @@ export default function KnowledgeGraph() {
     } catch (e: any) {
       console.error('Graph load error:', e?.message || e)
       setLoadError('图谱数据加载失败，请稍后点击右下角「刷新」重试')
+    }
+  }
+
+  /**
+   * 重算主题社区（ADR-007）。
+   *
+   * 是一次显式的、用户触发的幂等重算：社区不随文档入库自动变，
+   * 因为「重新解析」与「重新聚类」的代价和时机完全不同，混在一起会让人不敢改文档。
+   */
+  const handleDetectCommunities = async () => {
+    setCommunityBusy(true)
+    setCommunityNote('')
+    try {
+      const result = await window.sd.graph.detectCommunities()
+      setCommunityNote(
+        result.communities > 0
+          ? `已重算：${result.communities} 个社区，覆盖 ${result.entities} 个实体`
+          : '实体之间还没有足够的语义关系，暂时聚不出社区',
+      )
+      await loadGraph()
+    } catch (error: any) {
+      setCommunityNote(error?.message || '社区检测失败')
+    } finally {
+      setCommunityBusy(false)
     }
   }
 
@@ -773,7 +807,58 @@ export default function KnowledgeGraph() {
                 {stats.bridges != null && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>跨域桥</span><span style={{ color: 'var(--text)' }}>{stats.bridges}</span></div>
                 )}
+                {stats.predicate_edges != null && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>语义边</span><span style={{ color: 'var(--text)' }}>{stats.predicate_edges}</span></div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' }}>
+                  <span>主题社区</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--text)' }}>{stats.communities ?? 0}</span>
+                    <button
+                      onClick={handleDetectCommunities}
+                      disabled={communityBusy}
+                      title="基于实体—实体关系重新聚类（纯本地算法，不调用模型）"
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--card-border)',
+                        background: 'transparent',
+                        color: 'var(--text-secondary)',
+                        cursor: communityBusy ? 'wait' : 'pointer',
+                      }}
+                    >{communityBusy ? '…' : '重算'}</button>
+                  </span>
+                </div>
+                {communityNote && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{communityNote}</div>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* ADR-007：主题社区——关系密集的实体簇，给「这个词属于哪条主线」一个答案 */}
+          {communities.length > 0 && (
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--card-border)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase' }}>
+                主题社区 · {communities.length}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                关系密集的实体簇，内聚度越高说明社区越「纯粹」
+              </div>
+              {communities.map((community: any) => (
+                <div key={community.id} style={{ marginBottom: '9px', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text)' }}>社区 #{community.id}</span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>
+                      {community.size} 实体 · 内聚 {Number(community.cohesion || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--accent)', fontSize: '11px', marginTop: '2px' }}>
+                    {(community.top_entities || []).join(' · ')}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

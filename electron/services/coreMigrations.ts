@@ -301,4 +301,45 @@ export const coreMigrations: Migration[] = [
       `)
     },
   },
+  {
+    version: 9,
+    name: 'predicate-edges-and-entity-communities',
+    /**
+     * 语义边与主题社区（ADR-007）。两件事共用一条迁移，因为它们服务于同一个目标：
+     * 不引入大模型，也让图谱有「方向」和「层次」。
+     *
+     * - `relationships.source_doc_id`：规则边记录产出它的文档。重新解析时可按文档精确重算
+     *   （`DELETE WHERE source_doc_id=?`），人工创建的边该列为 NULL，永远不会被误删。
+     * - `communities` / `entity_communities`：社区检测结果。`communities` 只存汇总（规模、
+     *   内聚度、代表实体），成员关系放 `entity_communities` 做反向索引，避免把上千个 id
+     *   塞进一行 JSON 后没法按实体查社区。
+     *
+     * 幂等：加列前用 `PRAGMA table_info` 判断，DDL 全部 IF NOT EXISTS。
+     */
+    up(db) {
+      const columns = db.prepare('PRAGMA table_info(relationships)').all()
+      if (!columns.some((column: any) => column.name === 'source_doc_id')) {
+        db.exec('ALTER TABLE relationships ADD COLUMN source_doc_id INTEGER')
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_relationships_source_doc ON relationships(source_doc_id)')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_relationships_entity_edge ON relationships(source_type, target_type, relation_type)')
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS communities (
+          id           INTEGER PRIMARY KEY,
+          size         INTEGER NOT NULL,
+          weight       REAL NOT NULL DEFAULT 0,
+          cohesion     REAL NOT NULL DEFAULT 0,
+          top_entities TEXT,
+          updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_communities (
+          entity_id    INTEGER PRIMARY KEY,
+          community_id INTEGER NOT NULL,
+          updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_entity_communities_community ON entity_communities(community_id);
+      `)
+    },
+  },
 ]

@@ -7,6 +7,41 @@ type Tab = 'general' | 'ai' | 'security' | 'audit' | 'plugin'
 /** 合法 Tab 清单：供 `?tab=` 深链校验（问答页「配置模型 / 数据出域」入口用 `/settings?tab=ai`） */
 const TABS: Tab[] = ['general', 'ai', 'security', 'audit', 'plugin']
 
+/**
+ * 规则重排系数（设置项 `search.rerank.*`）。
+ *
+ * 前端不 import 后端常量（渲染进程不引 electron 目录），因此把默认值与约束在这里镜像一份：
+ * 与 `searchService.ts` 的 `RERANK_DEFAULT` / `RERANK_ALPHA_MAX` 必须一致，
+ * 差异由 `tests/predicate-graph.cjs` 的系数一致性断言兜住。
+ */
+const RERANK_ALPHA_MAX = 0.2
+const RERANK_DEFAULT: Record<string, number> = { alpha: 0.15, beta: 0.10, gamma: 0.05, delta: 0.05, epsilon: 0.20, zeta: 0.05 }
+const RERANK_FIELDS: Array<{ key: string; label: string }> = [
+  { key: 'alpha', label: '时间新鲜度 α（上限 0.2）' },
+  { key: 'beta', label: '作用域命中 β' },
+  { key: 'gamma', label: '类型命中 γ' },
+  { key: 'delta', label: '实体重合 δ' },
+  { key: 'epsilon', label: '标题命中 ε' },
+  { key: 'zeta', label: '社区亲和度 ζ' },
+]
+
+/** 与服务端 `readRerankCoefs` 同一套收敛：先夹到 [0,1]、α 再限 0.2、合计超 1 按比例缩放 */
+function effectiveRerank(raw: Record<string, string>): { values: Record<string, number>; sum: number; scaled: boolean } {
+  const values: Record<string, number> = {}
+  for (const f of RERANK_FIELDS) {
+    const n = Number(raw[f.key])
+    values[f.key] = Number.isFinite(n) && String(raw[f.key]).trim() !== ''
+      ? Math.min(Math.max(n, 0), 1)
+      : RERANK_DEFAULT[f.key]
+  }
+  values.alpha = Math.min(values.alpha, RERANK_ALPHA_MAX)
+  const rawSum = RERANK_FIELDS.reduce((s, f) => s + values[f.key], 0)
+  if (rawSum > 1) {
+    for (const f of RERANK_FIELDS) values[f.key] = values[f.key] / rawSum
+  }
+  return { values, sum: rawSum, scaled: rawSum > 1 }
+}
+
 interface SettingsProps {
   modal?: boolean
   onClose?: () => void
@@ -366,6 +401,13 @@ function AITab({ settings, onSave, saving, embeddingPlugins }: { settings: Recor
   const [perfLogEnabled, setPerfLogEnabled] = useState(settings.perf_log_enabled === 'true')
   const [deepNerEnabled, setDeepNerEnabled] = useState(settings.deep_ner_enabled === 'true')
   const [nerModel, setNerModel] = useState(settings.ner_model || 'Xenova/bert-base-NER')
+  // 规则重排系数：未配置过的键回落到默认值，界面上永远显示「当前生效的数字」，
+  // 不留空输入框——留空会让人误以为该项被关掉了。
+  const [rerank, setRerank] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const f of RERANK_FIELDS) init[f.key] = settings[`search.rerank.${f.key}`] ?? String(RERANK_DEFAULT[f.key])
+    return init
+  })
 
   useEffect(() => {
     setOcrEnabled(settings.ocr_enabled === 'true')
@@ -377,6 +419,9 @@ function AITab({ settings, onSave, saving, embeddingPlugins }: { settings: Recor
     setPerfLogEnabled(settings.perf_log_enabled === 'true')
     setDeepNerEnabled(settings.deep_ner_enabled === 'true')
     setNerModel(settings.ner_model || 'Xenova/bert-base-NER')
+    const next: Record<string, string> = {}
+    for (const f of RERANK_FIELDS) next[f.key] = settings[`search.rerank.${f.key}`] ?? String(RERANK_DEFAULT[f.key])
+    setRerank(next)
   }, [settings])
 
   /**
@@ -394,6 +439,7 @@ function AITab({ settings, onSave, saving, embeddingPlugins }: { settings: Recor
     modelOptions.unshift({ value: embeddingModel, label: `${embeddingModel}（未在注册表中）` })
   }
   const selectedNote = modelOptions.find(o => o.value === embeddingModel)?.note
+  const rerankPreview = effectiveRerank(rerank)
 
   return (
     <div style={{ maxWidth: '640px' }}>
@@ -441,6 +487,44 @@ function AITab({ settings, onSave, saving, embeddingPlugins }: { settings: Recor
           「批推理大小」表示一次 forward 同时处理多少块：实测在 CPU 上 2 与串行耗时持平、但写库事务数减半，
           而 8 反而比串行慢约 20%（批 GEMM 效率下降），因此默认 2，调大前建议先用「性能采集」对比。
           模型不支持批量输入时会自动回退逐条推理。修改这三项后需对文档重新解析才会生效。
+        </div>
+      </Card>
+
+      <Card title="检索调参（规则重排系数）">
+        <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.7, padding: '0 0 8px' }}>
+          全文与语义两路经 RRF 融合后，再按六项规则加权重排。系数只影响排序，不改变召回集合；
+          六项合计刻意留出余量，避免规则压过相关性本身。
+        </div>
+        {RERANK_FIELDS.map(field => (
+          <Row key={field.key} label={field.label}>
+            <input
+              type="number" min={0} max={1} step={0.01}
+              value={rerank[field.key] ?? ''}
+              onChange={e => setRerank(prev => ({ ...prev, [field.key]: e.target.value }))}
+              style={{ ...inputStyle, width: '90px' }}
+            />
+          </Row>
+        ))}
+        <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.7, padding: '8px 0 0' }}>
+          生效权重：
+          {RERANK_FIELDS.map(f => `${f.key === 'alpha' ? 'α' : f.key === 'beta' ? 'β' : f.key === 'gamma' ? 'γ' : f.key === 'delta' ? 'δ' : f.key === 'epsilon' ? 'ε' : 'ζ'} ${rerankPreview.values[f.key].toFixed(2)}`).join(' · ')}
+          （合计 {rerankPreview.sum.toFixed(2)}{rerankPreview.scaled ? '，超过 1.0 已按比例缩放' : ''}；α 超过 0.2 会被压到 0.2）
+          <br />
+          α 时间新鲜度（越近越加权，半衰期 30 天）· β 作用域命中 · γ 类型命中 · δ 查询实体重合 ·
+          ε 标题命中 · ζ 社区亲和度（查询实体所在社区覆盖；图谱未聚类时该项恒为 0，等价于未启用）。
+        </div>
+        <div style={{ paddingTop: '10px' }}>
+          <button
+            onClick={() => {
+              const reset: Record<string, string> = {}
+              for (const f of RERANK_FIELDS) reset[f.key] = String(RERANK_DEFAULT[f.key])
+              setRerank(reset)
+            }}
+            className="rounded-lg"
+            style={{ ...btnStyle, background: 'transparent', border: '1px solid var(--card-border)', color: 'var(--text-secondary)' }}
+          >
+            恢复默认
+          </button>
         </div>
       </Card>
 
@@ -500,6 +584,8 @@ function AITab({ settings, onSave, saving, embeddingPlugins }: { settings: Recor
         perf_log_enabled: String(perfLogEnabled),
         deep_ner_enabled: String(deepNerEnabled),
         ner_model: nerModel,
+        // 六项一起提交：单改 ζ 会让其余项留在旧值，用户看到「合计」与实际生效值不一致
+        ...Object.fromEntries(RERANK_FIELDS.map(f => [`search.rerank.${f.key}`, String(rerankPreview.values[f.key])])),
       })} />
     </div>
   )
@@ -653,6 +739,18 @@ function LlmConfigCard() {
             </div>
           )}
 
+          {/* 模型接入是插件扩展点（ADR-006）：插件全停用时不留一个选不了的空下拉，直接说清怎么恢复 */}
+          {catalog.length === 0 && (
+            <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg)', border: '1px solid var(--card-border)', marginBottom: '12px' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.6 }}>模型接入已关闭：当前没有启用的模型插件。</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.7, marginTop: '6px' }}>
+                模型接入本身就是插件（默认不启用）。到「扩展」页启用「OpenAI 兼容模型接入」后，这里才会出现可选项；
+                在此之前应用不会发起任何模型请求，检索、图谱与手动关系照常可用。
+              </div>
+            </div>
+          )}
+
+          {catalog.length > 0 && (<>
           <Row label="模型类型">
             <select value={kind} onChange={e => applyKind(e.target.value)} style={{ ...inputStyle, width: '240px' }}>
               {catalog.map(t => (
@@ -707,6 +805,7 @@ function LlmConfigCard() {
           <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.6, paddingTop: '8px' }}>
             密钥只保存在本机、只在本进程解密，界面与接口都只回显掩码。「测试连接」会先保存当前表单再探测端点。
           </div>
+          </>)}
         </>
       )}
     </Card>
@@ -962,6 +1061,7 @@ const DEFAULT_EMBEDDING = 'Xenova/bge-small-zh-v1.5'
 const PLUGIN_KIND_LABEL: Record<string, string> = {
   parser: '解析器',
   embedding: '嵌入模型',
+  llm: '模型接入',
   rerank: '重排',
   method: '方法',
   panel: '面板',
@@ -993,9 +1093,9 @@ function PluginTab({ plugins, error, busy, onToggle, onReload, onRefresh }: {
     <div style={{ maxWidth: '720px' }}>
       <Card title="插件">
         <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.7, marginBottom: '10px' }}>
-          插件声明式地扩展解析格式与嵌入模型，内建能力同样走插件路径。内建插件随应用分发，
+          插件声明式地扩展解析格式、嵌入模型与模型接入，内建能力同样走插件路径。内建插件随应用分发，
           <strong style={{ color: 'var(--text-secondary)' }}>可停用但不可卸载</strong>；
-          停用某个解析器后，它覆盖的格式会被当作「不支持」。
+          停用某个解析器后，它覆盖的格式会被当作「不支持」；停用模型接入插件后，「模型」页不再提供任何可选类型。
           权限只做声明与校验：宿主不向插件发放文件系统或网络能力（未声明的能力一律不提供）。
         </div>
 
@@ -1018,6 +1118,7 @@ function PluginTab({ plugins, error, busy, onToggle, onReload, onRefresh }: {
                   {PLUGIN_KIND_LABEL[p.kind] || p.kind} · v{p.version} · {p.builtin ? '内建' : '本地'}
                   {p.kind === 'parser' && p.capabilities?.extensions?.length ? ` · 覆盖格式：${p.capabilities.extensions.join(' / ')}` : ''}
                   {p.kind === 'embedding' && p.capabilities?.dimension ? ` · 维度 ${p.capabilities.dimension}` : ''}
+                  {p.kind === 'llm' && p.capabilities?.providerTypes?.length ? ` · 提供类型：${p.capabilities.providerTypes.join(' / ')}` : ''}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
                   权限：读取文件 {p.permissions?.fsRead ? '✓' : '✗'} · 联网 {p.permissions?.net ? '✓' : '✗'}

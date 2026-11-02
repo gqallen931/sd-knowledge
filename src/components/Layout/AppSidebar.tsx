@@ -62,6 +62,7 @@ const NAV: NavItem[] = [
   { label: '文件归档', path: '/files', icon: <IconArchive /> },
   { label: '日程管理', path: '/calendar', icon: <IconCalendar /> },
   { label: '智能分析', path: '/analytics', icon: <IconChart /> },
+  { label: '调度大屏', path: '/screen', icon: <IconMonitor /> },
   { label: '知识库', path: '/', icon: <IconBook /> },
   { label: '资源汇', path: '/resources', icon: <IconLayers /> },
   { label: '共享与导出', path: '/share', icon: <IconShare /> },

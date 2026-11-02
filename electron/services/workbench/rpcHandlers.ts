@@ -171,8 +171,18 @@ export function createWorkbenchRpc(deps: WorkbenchRpcDeps): Record<string, (...a
       if (!status) throw new Error(`插件不存在：${id}`)
       return status
     }),
-    'plugin.enable': (id: any) => guard(() => pluginRegistry.enable(String(id))),
-    'plugin.disable': (id: any) => guard(() => pluginRegistry.disable(String(id))),
+    // 启停模型接入插件（ADR-006）后要重新解析 provider：停用即「未接入模型」，
+    // 启用后若已有配置则立刻恢复，不需要重启应用。其它 kind 的插件与本行无关，故用可选链兜底。
+    'plugin.enable': (id: any) => guard(() => {
+      const status = pluginRegistry.enable(String(id))
+      deps.llmService?.reload()
+      return status
+    }),
+    'plugin.disable': (id: any) => guard(() => {
+      const status = pluginRegistry.disable(String(id))
+      deps.llmService?.reload()
+      return status
+    }),
     'plugin.reload': () => guard(() => reloadPluginSystem()),
     // 安装/卸载本轮只注册方法并返回可读的「未实现」，UI 不做安装入口（D27）
     'plugin.install': () => guard(() => {

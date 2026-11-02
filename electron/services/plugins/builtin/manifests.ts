@@ -33,6 +33,39 @@ export function builtinParserManifest(opts: {
   }
 }
 
+/**
+ * 模型接入插件清单（内建，ADR-006）。
+ *
+ * 与前两类不同：这个插件的清单里**没有端点、没有密钥、没有厂商 SDK**，只声明
+ * 「我能把哪种 provider 配置变成 LlmProvider」。没有用户配置时它不注册 provider、不发起请求，
+ * 所以「内建插件存在」并不等于「已接入模型」——模型接入默认是关闭的。
+ *
+ * `modelDownload` 留空是有意的：模型接入的目标域名由用户配置，写不进清单白名单，
+ * 联网边界改由宿主的出口守卫（`gateway/egress.ts`）按端点逐次校验。
+ */
+export function builtinLlmManifest(opts: {
+  id: string
+  name: string
+  /** 该插件覆盖的 provider 类型（装载前设置页据此展示可选项） */
+  providerTypes: string[]
+  description: string
+  /** 占位插件（如「托管模型」）声明 false：它不联网，因为还没有实现 */
+  net?: boolean
+}): PluginManifest {
+  return {
+    id: opts.id,
+    name: opts.name,
+    version: '1.0.0',
+    apiVersion: HOST_API_VERSION,
+    kind: 'llm',
+    runtime: 'inline',
+    builtin: true,
+    permissions: { fsRead: false, net: opts.net !== false, modelDownload: [] },
+    capabilities: { providerTypes: opts.providerTypes },
+    description: opts.description,
+  }
+}
+
 /** 嵌入模型插件清单（内建） */
 export function builtinEmbeddingManifest(opts: {
   id: string

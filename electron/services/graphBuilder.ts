@@ -1,6 +1,7 @@
 import DatabaseService from './database'
 import { RESULT_LIMITS, ResultSet, capLimit, makeResultSet } from './resultSet'
 import { ScopeFilter, describeScope, entityScopeWhere, hasScope, normalizeScope, scopeWhere } from './scope'
+import { detectCommunities } from './communityDetector'
 
 /**
  * 消歧比对时剥离的机构后缀（长后缀优先，避免「有限公司」被「公司」抢先匹配）。
@@ -299,26 +300,45 @@ export class GraphBuilder {
       LIMIT 50
     `).all(entity.id) as any[]
 
-    const relatedEntities = this.db.prepare(`
-      SELECT DISTINCT e.id, e.name, e.type, r.relation_type
-      FROM relationships r
-      JOIN entities e ON (r.target_id = e.id OR r.source_id = e.id)
-      WHERE e.id != ? AND (
-        (r.source_type = 'entity' AND r.source_id = ?) OR
-        (r.target_type = 'entity' AND r.target_id = ?)
-      )
-      LIMIT 30
-    `).all(entity.id, entity.id, entity.id) as any[]
+    // 实体—实体边带方向返回（ADR-007）：旧版只查了邻居名字，边上却没有实体间关系，
+    // 前端只能画「文档—实体」二部图。现在把谓词边一并带出，关系类型与权重都可展示。
+    const relatedRows = this.db.prepare(`
+      SELECT source_id, target_id, relation_type, weight
+      FROM relationships
+      WHERE source_type = 'entity' AND target_type = 'entity'
+        AND (source_id = ? OR target_id = ?)
+      ORDER BY weight DESC
+      LIMIT 40
+    `).all(entity.id, entity.id) as any[]
+
+    const neighborIds = Array.from(new Set(relatedRows.map(row =>
+      row.source_id === entity.id ? row.target_id : row.source_id
+    )))
+    const neighborMap = new Map<number, any>()
+    if (neighborIds.length) {
+      const placeholders = neighborIds.map(() => '?').join(',')
+      const rows = this.db.prepare(`SELECT id, name, type FROM entities WHERE id IN (${placeholders})`).all(...neighborIds) as any[]
+      for (const row of rows) neighborMap.set(row.id, row)
+    }
 
     const nodes = [
       { id: `e${entity.id}`, label: entity.name, type: 'entity', entity_type: entity.type },
       ...docNodes.map(d => ({ id: `d${d.id}`, label: d.title, type: 'document' })),
-      ...relatedEntities.map(e => ({ id: `e${e.id}`, label: e.name, type: 'entity' }))
+      ...neighborIds.filter(id => neighborMap.has(id)).map(id => {
+        const neighbor = neighborMap.get(id)
+        return { id: `e${id}`, label: neighbor.name, type: 'entity', entity_type: neighbor.type }
+      })
     ]
 
-    const edges = docNodes.map(d => ({
-      source: `d${d.id}`, target: `e${entity.id}`, relation: 'CONTAINS'
-    }))
+    const edges = [
+      ...docNodes.map(d => ({ source: `d${d.id}`, target: `e${entity.id}`, relation: 'CONTAINS' })),
+      ...relatedRows.map(row => ({
+        source: `e${row.source_id}`,
+        target: `e${row.target_id}`,
+        relation: row.relation_type,
+        weight: row.weight,
+      })),
+    ]
 
     return { nodes, edges, entity }
   }
@@ -351,6 +371,13 @@ export class GraphBuilder {
       SELECT COUNT(*) AS n FROM (SELECT entity_id FROM mentions GROUP BY entity_id HAVING COUNT(*) > 1)
     `).get() as any)?.n || 0
 
+    // ADR-007：社区是图上的一层结构（不是检索缓存），规模与内聚度直接报给 UI
+    const communityCount = ((this.db.prepare('SELECT COUNT(*) AS n FROM communities').get() as any)?.n) || 0
+    const predicateEdgeCount = ((this.db.prepare(`
+      SELECT COUNT(*) AS n FROM relationships
+      WHERE source_type = 'entity' AND target_type = 'entity' AND source_doc_id IS NOT NULL
+    `).get() as any)?.n) || 0
+
     return {
       total_nodes: docCount.count + entityCount.count + tagCount.count,
       documents: docCount.count,
@@ -360,9 +387,117 @@ export class GraphBuilder {
       spaces: spaceCount,
       folders: folderCount,
       bridges: bridgeCount,
+      communities: communityCount,
+      predicate_edges: predicateEdgeCount,
       entity_types: entityByType,
       file_types: docsByType
     }
+  }
+
+  /**
+   * 重算主题社区（ADR-007）。
+   *
+   * 输入是**实体—实体边**（含人工边与规则边，按 source/target 聚合权重），
+   * 文档—实体边不参与：它们是二部图的一侧，混进来会让「同一文档提到的实体」自动结社，
+   * 社区退化成「按文档聚类」，失去发现跨文档主题的能力。
+   *
+   * 结果整体替换（先清空再写），是一次幂等重算；规模为 1 的实体不写入 `communities`，
+   * 但仍写入 `entity_communities`，使「查某实体属于哪个社区」永远有答案。
+   */
+  async detectCommunities(options: { minSize?: number; maxRounds?: number } = {}): Promise<any> {
+    const entityRows = this.db.prepare('SELECT id FROM entities').all() as any[]
+    const edgeRows = this.db.prepare(`
+      SELECT source_id, target_id, SUM(weight) AS weight
+      FROM relationships
+      WHERE source_type = 'entity' AND target_type = 'entity' AND source_id <> target_id
+      GROUP BY source_id, target_id
+    `).all() as any[]
+
+    const edges = edgeRows.map(row => ({
+      source: Number(row.source_id),
+      target: Number(row.target_id),
+      weight: Number(row.weight) || 1,
+    }))
+    const result = detectCommunities(entityRows.map(row => Number(row.id)), edges, options)
+
+    // 代表实体：社区内度数最高的前 5 个名字，作为社区的「标题」候选
+    const degree = new Map<number, number>()
+    for (const edge of edges) {
+      degree.set(edge.source, (degree.get(edge.source) ?? 0) + edge.weight)
+      degree.set(edge.target, (degree.get(edge.target) ?? 0) + edge.weight)
+    }
+    const nameOf = new Map<number, string>()
+    const nameRows = this.db.prepare('SELECT id, name FROM entities').all() as any[]
+    for (const row of nameRows) nameOf.set(Number(row.id), row.name)
+    const topEntities = (members: number[]): string[] =>
+      [...members]
+        .sort((a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a - b)
+        .slice(0, 5)
+        .map(id => nameOf.get(id) || `#${id}`)
+
+    const clearCommunities = this.db.prepare('DELETE FROM communities')
+    const clearMembers = this.db.prepare('DELETE FROM entity_communities')
+    const insertCommunity = this.db.prepare(`
+      INSERT INTO communities (id, size, weight, cohesion, top_entities, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `)
+    const insertMember = this.db.prepare(`
+      INSERT INTO entity_communities (entity_id, community_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    `)
+
+    this.db.transaction(() => {
+      clearCommunities.run()
+      clearMembers.run()
+      for (const [entityId, communityId] of result.assignment) insertMember.run(entityId, communityId)
+      for (const community of result.communities) {
+        insertCommunity.run(
+          community.id,
+          community.members.length,
+          Number(community.weight.toFixed(4)),
+          community.cohesion,
+          JSON.stringify(topEntities(community.members)),
+        )
+      }
+    })
+
+    return {
+      communities: result.communities.length,
+      entities: result.assignment.size,
+      edges: edges.length,
+      largest: result.communities[0]?.members.length ?? 0,
+    }
+  }
+
+  async getCommunities(options: { limit?: number } = {}): Promise<any[]> {
+    const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 200)
+    const rows = this.db.prepare(`
+      SELECT id, size, weight, cohesion, top_entities, updated_at
+      FROM communities
+      ORDER BY size DESC, id ASC
+      LIMIT ?
+    `).all(limit) as any[]
+    return rows.map(row => {
+      let top: string[] = []
+      try { top = JSON.parse(row.top_entities || '[]') } catch { top = [] }
+      return { ...row, top_entities: top }
+    })
+  }
+
+  /** 某实体所属社区及其成员（社区未计算时返回 null，调用方据此提示「先跑一次社区检测」） */
+  async getEntityCommunity(entityId: number, limit: number = 100): Promise<any> {
+    const row = this.db.prepare('SELECT community_id FROM entity_communities WHERE entity_id = ?').get(entityId) as any
+    if (!row) return null
+    const capped = Math.min(Math.max(Number(limit) || 100, 1), 500)
+    const members = this.db.prepare(`
+      SELECT e.id, e.name, e.type
+      FROM entity_communities ec
+      JOIN entities e ON e.id = ec.entity_id
+      WHERE ec.community_id = ?
+      ORDER BY e.id
+      LIMIT ?
+    `).all(row.community_id, capped) as any[]
+    const summary = this.db.prepare('SELECT id, size, weight, cohesion FROM communities WHERE id = ?').get(row.community_id) as any
+    return { community_id: row.community_id, summary: summary || null, members }
   }
 
   async addRelationship(

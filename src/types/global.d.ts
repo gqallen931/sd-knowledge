@@ -705,6 +705,26 @@ export interface SDAPI extends SDWorkbenchApi {
         detail: string
       }>
     }>
+    /** ADR-007：主题社区。社区由实体—实体边上的标签传播得到，纯本地计算。 */
+    communities: (options?: { limit?: number }) => Promise<Array<{
+      id: number
+      size: number
+      weight: number
+      cohesion: number
+      top_entities: string[]
+      updated_at?: string
+    }>>
+    detectCommunities: (options?: { minSize?: number; maxRounds?: number }) => Promise<{
+      communities: number
+      entities: number
+      edges: number
+      largest: number
+    }>
+    entityCommunity: (entityId: number, limit?: number) => Promise<{
+      community_id: number
+      summary: { id: number; size: number; weight: number; cohesion: number } | null
+      members: Array<{ id: number; name: string; type: string }>
+    } | null>
     /** S2-08：实体别名 / 合并历史 / 忽略记忆 */
     listAliases: (entityId?: number) => Promise<any[]>
     addAlias: (entityId: number, alias: string) => Promise<any>

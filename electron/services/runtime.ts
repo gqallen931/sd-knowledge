@@ -21,6 +21,7 @@ import { AnswerService } from './answerService'
 import { ResourceService } from './resourceService'
 import { GithubRankService } from './githubRankService'
 import { CameraService } from './perception/cameraService'
+import { LightRagBridge } from './lightragBridge'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -90,6 +91,8 @@ export async function createRuntime(dataDir: string) {
   githubRank.scheduleDaily()
   githubRank.catchUp()
   const camera = new CameraService()
+  // LightRAG 是可选的派生索引引擎；未启用或未启动时由桥接器返回状态，绝不影响既有检索。
+  const lightRag = LightRagBridge.fromSettings(db.getSettingsSync())
 
   // 断点续传：恢复上次异常退出时中断或仍在排队的解析任务（按持久化的优先级还原出队顺序）
   const recoverQueue = () => {
@@ -143,7 +146,7 @@ export async function createRuntime(dataDir: string) {
     isQueued: (id: number) => queue.isQueued(id),
     db, files, processing, search, graph, security, backup,
     workbench, tasks, auth, reminders, dataManager,
-    llm, llmService, answer, camera, resources, githubRank,
+    llm, llmService, answer, camera, resources, githubRank, lightRag,
     chunkBackfill,
     runChunkBackfill,
     stopReminders: () => clearInterval(reminderTimer),
